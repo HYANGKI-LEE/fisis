@@ -25,7 +25,7 @@ if __name__ == '__main__':
     sml_divs = [f[1] for f in os.listdir(dir_lrgDiv) if not f.startswith('.') and f.startswith('(')]
 
     final_df = pd.DataFrame()
-    # print(sml_divs)
+
     for sml_div in sml_divs:
 
         smlDivNm_ = smlDiv_dict[sml_div]
@@ -56,9 +56,10 @@ if __name__ == '__main__':
             display_cols_sort = display_cols + ['항목']
         else:
             display_cols_sort = display_cols
-        df=df[display_cols_sort+data_cols]
+        df=df[display_cols_sort + data_cols]
         df.reset_index(drop=True).to_csv('{}/{}_{}_{}.csv'.format(dir_merged_df, lrgDivNm_, smlDivNm_, data_cols[-1]), encoding='cp949')
-
+        df['분류'] = smlDivNm_
         final_df = pd.concat([final_df, df]).reset_index(drop=True)
 
+    final_df = final_df[["분류"]+ display_cols_sort + data_cols]
     final_df.reset_index(drop=True).to_csv('{}/{}_{}.csv'.format(dir_final_df, lrgDivNm_, data_cols[-1]), encoding='cp949')

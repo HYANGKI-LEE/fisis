@@ -24,21 +24,21 @@ if __name__ == '__main__':
     args = setup_args()
     lrgDivNm_=lrgDiv_dict[args.lrgDiv_]
 
-
     dir_lrgDiv='output/({}){}'.format(args.lrgDiv_, lrgDivNm_)
     make_dir(dir_lrgDiv)
 
-    dir_smlDiv='{}/({}){}'.format(dir_lrgDiv, args.smlDiv_, smlDivNm_)
-    make_dir(dir_smlDiv)
-
-    dir_long_df='{}/long_df'.format(dir_smlDiv)
-    make_dir(dir_long_df)
-
-    dir_period='{}/{}_{}'.format(dir_long_df, args.startBaseMm_, args.endBaseMm_)
-    make_dir(dir_period)
-
     for sml_div in args.smlDiv_:
         smlDivNm_ = smlDiv_dict[sml_div]
+
+        dir_smlDiv = '{}/({}){}'.format(dir_lrgDiv, sml_div, smlDivNm_)
+        make_dir(dir_smlDiv)
+
+        dir_long_df = '{}/long_df'.format(dir_smlDiv)
+        make_dir(dir_long_df)
+
+        dir_period = '{}/{}_{}'.format(dir_long_df, args.startBaseMm_, args.endBaseMm_)
+        make_dir(dir_period)
+
         list_list = fisis_getter.getStatisticsListSearch(lrgDiv=args.lrgDiv_, smlDiv=sml_div)['result']['list']
 
         print(list_list)

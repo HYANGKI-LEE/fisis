@@ -11,7 +11,7 @@
 
 결과는 /output/.../long_df/ {startBaseMm_}_ {endBaseMm_} 에 저장
 ```commandline
-python3 request_lrgdiv.py --lrgDiv_ E --smlDiv_ C --startBaseMm_ 201703 --endBaseMm_ 202312
+python3 request.py --lrgDiv_ E --smlDiv_ B C --startBaseMm_ 201703 --endBaseMm_ 202312
 ```
 
 ## step2. process data : long to wide
@@ -24,7 +24,7 @@ python3 request_lrgdiv.py --lrgDiv_ E --smlDiv_ C --startBaseMm_ 201703 --endBas
 
 결과는 /output/.../wide_df 에 저장
 ```commandline
-python3 process_lrgdiv_E.py --lrgDiv_ E --smlDiv_ C
+python3 process.py --lrgDiv_ E
 ```
 
 ## step3. merge data
@@ -32,7 +32,7 @@ python3 process_lrgdiv_E.py --lrgDiv_ E --smlDiv_ C
 
 결과는 /output/.../final_df 에 저장 ({lrgDivNm} _ {smlDivNm} _ {endBaseMm}.csv)
 ```commandline
-python3 merge_lrgdiv_E.py --lrgDiv_ E --smlDiv_ C
+python3 merge.py --lrgDiv_ E
 ```
 
 # List no로 추출하기

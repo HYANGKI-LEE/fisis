@@ -19,10 +19,10 @@ if __name__ == '__main__':
     dir_lrgDiv='output/({}){}'.format(args.lrgDiv_, lrgDivNm_)
     make_dir(dir_lrgDiv)
 
-    sml_divs = [f[1] for f in os.listdir(dir_lrgDiv) if not f.startswith('.')]
+    sml_divs = [f[1] for f in os.listdir(dir_lrgDiv) if not f.startswith('.') and f.startswith('(')]
 
     for sml_div in sml_divs:
-        smlDivNm_=smlDiv_dict[args.smlDiv_]
+        smlDivNm_=smlDiv_dict[sml_div]
 
         dir_smlDiv='{}/({}){}'.format(dir_lrgDiv, sml_div, smlDivNm_)
         make_dir(dir_smlDiv)
