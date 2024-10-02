@@ -34,7 +34,15 @@ if __name__ == '__main__':
         make_dir(dir_wide_df)
 
         periods = [f for f in os.listdir(dir_long_df) if not f.startswith('.')]
+        max_start, max_end = max(periods).split('_')
+        for period in periods:
+            if period.startswith(max_start) and not period.endswith(max_end):
+                periods.remove(period)
         items = [f for f in os.listdir('{}/{}'.format(dir_long_df, periods[0])) if not f.startswith('.')]
+        # print(">>>>> periods : {}".format(periods))
+        # print('')
+        # print('')
+        # print('>>>>> items')
         # print(items)
         n_rows=0
         for i in items:
