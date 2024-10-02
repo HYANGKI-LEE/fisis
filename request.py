@@ -40,6 +40,9 @@ if __name__ == '__main__':
         make_dir(dir_period)
 
         list_list = fisis_getter.getStatisticsListSearch(lrgDiv=args.lrgDiv_, smlDiv=sml_div)['result']['list']
+        n_downloaded_files=len(os.listdir(dir_period))
+        if n_downloaded_files:
+            list_list=list_list[(n_downloaded_files-2):]
 
         print(list_list)
         print('')
