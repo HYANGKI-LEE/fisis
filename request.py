@@ -15,7 +15,7 @@ from util import make_dir, long_df_file_name
 def setup_args() -> Namespace:
     parser = ArgumentParser(description='fisis api')
     parser.add_argument('--lrgDiv_', type=str)
-    parser.add_argument('--smlDiv_', '--names-list', action="append")
+    parser.add_argument('--smlDiv_', '--names-list', nargs='+', default=[])
     parser.add_argument('--startBaseMm_', type=str)
     parser.add_argument('--endBaseMm_', type=str)
     return parser.parse_args()
