@@ -47,9 +47,8 @@ if __name__ == '__main__':
     list_list=[]
     for list_nm_word in args.listNm_:
         list_list.extend([x for x in list_list_total if list_nm_word in x['list_nm']])
-    # list_list=[x for x in list_list if x['list_nm'] in args.listNm_]
-    if True:
-        list_list = [x for x in list_list if '23.3' in x['list_nm']]
+    # if True:
+    #    list_list = [x for x in list_list if '23.3' in x['list_nm']]
     print('')
     print(list_list_total)
     print('')

@@ -54,6 +54,7 @@ if __name__ == '__main__':
         print('')
         print('')
         for i, l in enumerate(list_for_target):
+        # for i, l in enumerate([list_for_target[3]]):
             list_no_=l['list_no']
             list_nm_=l['list_nm']
             print('')
