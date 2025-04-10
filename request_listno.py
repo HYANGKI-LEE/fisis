@@ -4,7 +4,7 @@ import pandas as pd
 from argparse import Namespace, ArgumentParser
 
 import fisis_getter
-from config import base_cols, col_name_matching_dict, lrgDiv_dict, smlDiv_dict, display_cols
+from config import base_cols, col_name_matching_dict, Div_dict, smlDiv_dict, display_cols
 from util import make_dir
 
 
@@ -26,7 +26,8 @@ def setup_args() -> Namespace:
 
 if __name__ == '__main__':
     args = setup_args()
-    lrgDivNm_=lrgDiv_dict[args.lrgDiv_]
+    lrgDivNm_ = Div_dict[args.lrgDiv_]["Name"]
+
     smlDivNm_=smlDiv_dict[args.smlDiv_]
 
     dir_lrgDiv='output/({}){}'.format(args.lrgDiv_, lrgDivNm_)

@@ -3,7 +3,7 @@ import pandas as pd
 from argparse import Namespace, ArgumentParser
 
 from util import make_dir
-from config import base_cols, col_name_matching_dict, lrgDiv_dict, smlDiv_dict, display_cols
+from config import base_cols, col_name_matching_dict, Div_dict, smlDiv_dict, display_cols, Div_dict
 
 
 def setup_args() -> Namespace:
@@ -14,7 +14,7 @@ def setup_args() -> Namespace:
 
 if __name__ == '__main__':
     args = setup_args()
-    lrgDivNm_=lrgDiv_dict[args.lrgDiv_]
+    lrgDivNm_ = Div_dict[args.lrgDiv_]["Name"]
 
     dir_lrgDiv='output/({}){}'.format(args.lrgDiv_, lrgDivNm_)
     make_dir(dir_lrgDiv)
@@ -35,15 +35,21 @@ if __name__ == '__main__':
 
         periods = [f for f in os.listdir(dir_long_df) if not f.startswith('.')]
         max_start, max_end = max(periods).split('_')
+
+        print("max_start", max_start, "max_end", max_end)
+        print('')
+        print(">> before deletion")
+        print(periods)
         for period in periods:
             if period.startswith(max_start) and not period.endswith(max_end):
                 periods.remove(period)
+        print('')
+        print(">> after deletion")
+        print(periods)
         items = [f for f in os.listdir('{}/{}'.format(dir_long_df, periods[0])) if not f.startswith('.')]
-        # print(">>>>> periods : {}".format(periods))
-        # print('')
-        # print('')
-        # print('>>>>> items')
-        # print(items)
+        print('')
+        print(items)
+
         n_rows=0
         for i in items:
             print('>>>> {} '.format(i))
@@ -51,7 +57,7 @@ if __name__ == '__main__':
                 df=pd.DataFrame()
                 for p in periods:
                     file_dir = '{}/{}/{}'.format(dir_long_df, p, i)
-                    df_tmp = pd.read_csv(file_dir, index_col=[0])
+                    df_tmp = pd.read_csv(file_dir, index_col=[0], encoding='cp949')
                     df = pd.concat([df, df_tmp]).reset_index(drop=True)
                 df['년월'] = df['년월'].astype('int')
                 df['금융회사코드'] = df['금융회사코드'].astype('int')

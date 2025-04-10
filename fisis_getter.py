@@ -107,8 +107,11 @@ def getRawData_byListNo(lrgDiv, smlDiv, startBaseMm, endBaseMm, term, listNo, li
     # target_items = selected_items[(selected_items['금융권역코드'] == lrgDiv) & (selected_items['통계코드'] == listNo) & (
     #             selected_items['사용여부'] == 1)].reset_index(drop=True)
     all_corp_list = [x for x in getCompanySearch(partDiv=lrgDiv)['result']['list'] if '[폐]' not in x['finance_nm']]
-    if lrgDiv=='E':
-        all_corp_list = [x for x in getCompanySearch(partDiv=lrgDiv)['result']['list']]
+
+    # if lrgDiv=='E':
+    #   all_corp_list = [x for x in getCompanySearch(partDiv=lrgDiv)['result']['list']]
+
+        # all_corp_list = all_corp_list[:5]
     # print('')
     # print(pd.DataFrame(all_corp_list))
     print('Total {} companies'.format(len(all_corp_list)))
