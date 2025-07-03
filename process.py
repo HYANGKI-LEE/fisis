@@ -20,6 +20,7 @@ if __name__ == '__main__':
     make_dir(dir_lrgDiv)
 
     sml_divs = [f[1] for f in os.listdir(dir_lrgDiv) if not f.startswith('.') and f.startswith('(')]
+    print(sml_divs)
 
     for sml_div in sml_divs:
         smlDivNm_=smlDiv_dict[sml_div]
@@ -36,25 +37,16 @@ if __name__ == '__main__':
         periods = [f for f in os.listdir(dir_long_df) if not f.startswith('.')]
         max_start, max_end = max(periods).split('_')
 
-        print("max_start", max_start, "max_end", max_end)
-        print('')
-        print(">> before deletion")
-        print(periods)
         for period in periods:
             if period.startswith(max_start) and not period.endswith(max_end):
                 periods.remove(period)
-        print('')
-        print(">> after deletion")
-        print(periods)
         items = [f for f in os.listdir('{}/{}'.format(dir_long_df, periods[0])) if not f.startswith('.')]
-        print('')
-        print(items)
-
         n_rows=0
+        # print(items)
         for i in items:
             print('>>>> {} '.format(i))
             try:
-                df=pd.DataFrame()
+                df = pd.DataFrame()
                 for p in periods:
                     file_dir = '{}/{}/{}'.format(dir_long_df, p, i)
                     df_tmp = pd.read_csv(file_dir, index_col=[0], encoding='cp949')
@@ -62,30 +54,43 @@ if __name__ == '__main__':
                 df['년월'] = df['년월'].astype('int')
                 df['금융회사코드'] = df['금융회사코드'].astype('int')
 
-                value_cols=list(set(df.columns)-set(display_cols+['년월']))
-                print(value_cols)
+                if i == "국내은행_재무현황(연결재무상태표(자산)).csv":
+                    print(df.head())
+
+                value_cols = list(set(df.columns)-set(display_cols+['년월']))
+
+                print("value_cols : {}".format(value_cols))
+
                 if len(value_cols) == 0:
                     continue
+
+                # clean & -> value라는 값 잘 선언하기
                 if len(value_cols) == 1:
-                    value=value_cols[0]
+                    value = value_cols[0]
                 else:
-                    if '금액' in value_cols:
-                        value='금액'
-                    elif '당분기' in value_cols:
-                        value='당분기'
-                    else:
+                    # clean values_cols
+                    if '당분기' in value_cols:
+                        value = '당분기'
+                    if '구성비' in value_cols:
+                        value_cols.remove('구성비')
                         try:
-                            df=pd.melt(df, id_vars=display_cols+['년월'], value_vars=value_cols).rename(columns={"variable": "항목", "value": "금액"})
-                            value='금액'
+                            print(value_cols)
+                            df = pd.melt(df, id_vars=display_cols + ['년월'], value_vars=value_cols).rename(
+                                columns={"variable": "항목", "value": "금액"})
+                            value = '금액'
                         except Exception as e:
                             print(e)
 
+                print("value_cols 클리닝 후~ : {}".format(value_cols))
+
                 if '항목' in df.columns:
-                    display_cols_pivot=display_cols+['항목']
+                    display_cols_pivot = display_cols + ['항목']
                 else:
-                    display_cols_pivot=display_cols
+                    display_cols_pivot = display_cols
 
                 wide_df = df.drop_duplicates().reset_index(drop=True).pivot(index=display_cols_pivot, columns='년월', values=value)
+
+
 
                 n_rows_tmp=wide_df.shape[0]
                 n_rows=n_rows+n_rows_tmp
@@ -93,6 +98,7 @@ if __name__ == '__main__':
                 print('')
 
                 wide_df.reset_index().to_csv('{}/{}'.format(dir_wide_df, i), encoding='cp949')
+
             except Exception as e:
                 print('-- passed! : {}'.format(e))
                 print('')
