@@ -5,6 +5,8 @@ from argparse import Namespace, ArgumentParser
 from util import make_dir
 from config import base_cols, col_name_matching_dict, Div_dict, smlDiv_dict, display_cols, Div_dict
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 def setup_args() -> Namespace:
     parser = ArgumentParser(description='fisis api')
@@ -20,7 +22,6 @@ if __name__ == '__main__':
     make_dir(dir_lrgDiv)
 
     sml_divs = [f[1] for f in os.listdir(dir_lrgDiv) if not f.startswith('.') and f.startswith('(')]
-    print(sml_divs)
 
     for sml_div in sml_divs:
         smlDivNm_=smlDiv_dict[sml_div]
@@ -42,7 +43,7 @@ if __name__ == '__main__':
                 periods.remove(period)
         items = [f for f in os.listdir('{}/{}'.format(dir_long_df, periods[0])) if not f.startswith('.')]
         n_rows=0
-        # print(items)
+
         for i in items:
             print('>>>> {} '.format(i))
             try:
@@ -59,7 +60,7 @@ if __name__ == '__main__':
 
                 value_cols = list(set(df.columns)-set(display_cols+['년월']))
 
-                print("value_cols : {}".format(value_cols))
+                # print("value_cols : {}".format(value_cols))
 
                 if len(value_cols) == 0:
                     continue
@@ -73,15 +74,15 @@ if __name__ == '__main__':
                         value = '당분기'
                     if '구성비' in value_cols:
                         value_cols.remove('구성비')
-                        try:
-                            print(value_cols)
-                            df = pd.melt(df, id_vars=display_cols + ['년월'], value_vars=value_cols).rename(
-                                columns={"variable": "항목", "value": "금액"})
-                            value = '금액'
-                        except Exception as e:
-                            print(e)
 
-                print("value_cols 클리닝 후~ : {}".format(value_cols))
+                    try:
+                        df = pd.melt(df, id_vars=display_cols + ['년월'], value_vars=value_cols).rename(
+                            columns={"variable": "항목", "value": "금액"})
+                        value = '금액'
+                    except Exception as e:
+                        print(e)
+
+                # print("value_cols 클리닝 후~ : {}".format(value_cols))
 
                 if '항목' in df.columns:
                     display_cols_pivot = display_cols + ['항목']
@@ -94,13 +95,13 @@ if __name__ == '__main__':
 
                 n_rows_tmp=wide_df.shape[0]
                 n_rows=n_rows+n_rows_tmp
-                print('-- {} rows'.format(n_rows))
-                print('')
+                # print('-- {} rows'.format(n_rows))
+                # print('')
 
                 wide_df.reset_index().to_csv('{}/{}'.format(dir_wide_df, i), encoding='cp949')
 
             except Exception as e:
-                print('-- passed! : {}'.format(e))
+                print('--> PASSED !!! : {}'.format(e))
                 print('')
                 continue
 
