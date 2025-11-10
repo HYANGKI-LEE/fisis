@@ -79,6 +79,7 @@ if __name__ == '__main__':
                         df = pd.melt(df, id_vars=display_cols + ['년월'], value_vars=value_cols).rename(
                             columns={"variable": "항목", "value": "금액"})
                         value = '금액'
+                        # print(df.head(5))
                     except Exception as e:
                         print(e)
 
@@ -89,8 +90,10 @@ if __name__ == '__main__':
                 else:
                     display_cols_pivot = display_cols
 
-                wide_df = df.drop_duplicates().reset_index(drop=True).pivot(index=display_cols_pivot, columns='년월', values=value)
-
+                # wide_df = df.drop_duplicates().reset_index(drop=True).pivot(index=display_cols_pivot, columns='년월', values=value)
+                wide_df = df.drop_duplicates().reset_index(drop=True).pivot_table(index=display_cols_pivot, columns='년월',
+                                                                                  values=value, aggfunc ='sum')
+                # print(wide_df.head(5))
 
 
                 n_rows_tmp=wide_df.shape[0]
