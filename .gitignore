@@ -4,3 +4,12 @@
 **/._.DS_Store
 **/__pycache__/
 __pycache__/
+.idea/
+
+# secrets
+.env
+
+# raw/intermediate FISIS output — only final_df is tracked in git
+output/**/long_df/
+output/**/wide_df/
+output/**/merged_df/

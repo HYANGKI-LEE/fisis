@@ -1,5 +1,9 @@
+import os
+from dotenv import load_dotenv
 
-myAPIkey='c54ca82a0b77e3123cbb10e44a214812'
+load_dotenv()
+
+myAPIkey = os.environ.get('FISIS_API_KEY', '')
 user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 base_cols=['base_month', 'finance_cd', 'finance_nm', 'account_cd', 'account_nm',
