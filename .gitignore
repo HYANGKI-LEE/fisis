@@ -13,3 +13,6 @@ __pycache__/
 output/**/long_df/
 output/**/wide_df/
 output/**/merged_df/
+
+# 자동 업데이트 로그 (로컬 전용)
+scheduler/run_daily.log
