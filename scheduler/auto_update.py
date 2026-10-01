@@ -1,18 +1,23 @@
-"""FISIS 데이터 자동 업데이트 (매일 점검, 새 분기 나왔을 때만 전체 재수집).
+"""FISIS 데이터 자동 업데이트 (매일 점검, 새 분기 나왔을 때만 증분 수집).
 
-기존 수동 작업 방식 그대로:
-    python request.py --lrgDiv_ {코드} --startBaseMm_ {기존 버킷 시작점} --endBaseMm_ {최신}
+    python request.py --lrgDiv_ {코드} --startBaseMm_ {다음 분기} --endBaseMm_ {다음 분기}
     python process.py --lrgDiv_ {코드}
     python merge.py --lrgDiv_ {코드}
+
 를 config.py의 Div_dict를 참고해 업권별로 돌리되, 매일 무겁게 전체를 다시 받는 대신
 "다음 분기 데이터가 FISIS에 실제로 올라왔는지"를 가벼운 API 호출 1~2번으로 먼저
-확인하고, 올라온 업권에 대해서만 기존 방식(시작점 고정, 끝점만 확장)으로 전체를
-재수집한다. 하나라도 갱신되면 cross_append.py로 보험사/캐피탈사 후처리까지 실행.
+확인하고, 올라온 업권에 대해서만 그 분기 하나만 담은 작은 버킷(예: 202606_202606)을
+새로 추가한다 (과거 버킷인 200703_201612, 201703_202603 등은 건드리지 않고 그대로
+둠 - 2017년부터 매번 전체를 다시 받으면 업권당 수십 분~수 시간씩 걸림). 여러 분기가
+밀려있어도 한 번에 다 받지 않고 분기 하나씩만 처리하며, 다음 실행 때 그 다음 분기를
+또 감지해서 자연스럽게 따라잡는다. process.py/merge.py는 원래부터 long_df 밑에 여러
+기간 폴더가 있으면 전부 합쳐서 처리하는 구조라, 작은 증분 버킷을 새로 추가해도 기존
+버킷들과 자동으로 합쳐진다. 하나라도 갱신되면 cross_append.py로 보험사/캐피탈사
+후처리까지 실행.
 
-git commit/push는 이 스크립트가 아니라 예약 작업 프롬프트 쪽에서 처리한다.
+git commit/push는 이 스크립트가 아니라 run_daily.py 쪽에서 처리한다.
 """
 import datetime
-import glob
 import os
 import re
 import subprocess
@@ -27,9 +32,6 @@ from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path  # noqa: E402
 
 PERIOD_RE = re.compile(r"_(\d{6})\.csv$")
 FOLDER_CODE_RE = re.compile(r"^\((\w)\)")
-BUCKET_RE = re.compile(r"^(\d{6})_(\d{6})$")
-
-DEFAULT_BUCKET_START = 201703
 
 
 def sector_lrgdiv_code(folder_name: str) -> str:
@@ -37,12 +39,6 @@ def sector_lrgdiv_code(folder_name: str) -> str:
     if not m:
         raise ValueError(f"업권 코드를 못 찾음: {folder_name}")
     return m.group(1)
-
-
-def current_quarter_label(today: datetime.date) -> int:
-    """오늘이 속한 분기의 종료월 기준 라벨 (예: 2026-07-xx -> 202609)."""
-    q = (today.month - 1) // 3 + 1
-    return today.year * 100 + q * 3
 
 
 def next_quarter_label(yyyymm: int) -> int:
@@ -61,21 +57,6 @@ def existing_max_period(sector: str) -> int | None:
         return None
     m = PERIOD_RE.search(os.path.basename(path))
     return int(m.group(1)) if m else None
-
-
-def current_bucket_start(lrgDiv: str, lrgDivNm: str) -> int:
-    """long_df 폴더명({시작}_{끝})을 보고 현재 쓰고 있는 버킷의 시작점을 찾음.
-    여러 smlDiv 중 가장 최근(끝이 가장 큰) 버킷의 시작점을 기준으로 삼는다."""
-    pattern = os.path.join(REPO_ROOT, "output", f"({lrgDiv}){lrgDivNm}", "*", "long_df", "*_*")
-    candidates = []
-    for d in glob.glob(pattern):
-        m = BUCKET_RE.match(os.path.basename(d))
-        if m:
-            candidates.append((int(m.group(2)), int(m.group(1))))  # (end, start)
-    if not candidates:
-        return DEFAULT_BUCKET_START
-    candidates.sort()
-    return candidates[-1][1]
 
 
 PROBE_COMPANY_LIMIT = 10
@@ -132,9 +113,8 @@ def run_step(args: list[str]) -> bool:
     return result.returncode == 0
 
 
-def check_and_update_sector(sector: str, folder: str, today: datetime.date) -> bool:
+def check_and_update_sector(sector: str, folder: str) -> bool:
     lrgDiv = sector_lrgdiv_code(folder)
-    lrgDivNm = Div_dict[lrgDiv]["Name"]
 
     existing = existing_max_period(sector)
     if existing is None:
@@ -154,13 +134,15 @@ def check_and_update_sector(sector: str, folder: str, today: datetime.date) -> b
         print(f"[{sector}] {next_q} 아직 미공시 - 건너뜀")
         return False
 
-    bucket_start = current_bucket_start(lrgDiv, lrgDivNm)
-    target_end = current_quarter_label(today)
-    print(f"[{sector}] {next_q} 신규 공시 확인됨! {bucket_start} ~ {target_end} 전체 재수집 시작")
+    print(f"[{sector}] {next_q} 신규 공시 확인됨! {next_q} 단일 분기 버킷으로 수집 시작")
 
+    # 과거 버킷(200703_201612, 201703_{기존 최신}...)은 그대로 두고, 분기 하나당
+    # {next_q}_{next_q} 형태의 새 버킷만 추가한다. 여러 분기가 밀려있어도 한 번에
+    # {next_q}~오늘 범위를 다 받지 않고 분기 하나씩만 처리 - 다음 실행 때 그 다음
+    # 분기를 또 감지해서 자연스럽게 따라잡는다.
     ok = run_step(
         ["python", "request.py", "--lrgDiv_", lrgDiv,
-         "--startBaseMm_", str(bucket_start), "--endBaseMm_", str(target_end)]
+         "--startBaseMm_", str(next_q), "--endBaseMm_", str(next_q)]
     )
     if not ok:
         print(f"[{sector}] request.py 실패")
@@ -185,7 +167,7 @@ def main() -> bool:
     any_updated = False
     for sector, folder in SECTOR_FOLDERS.items():
         try:
-            if check_and_update_sector(sector, folder, today):
+            if check_and_update_sector(sector, folder):
                 any_updated = True
         except Exception as e:  # noqa: BLE001
             print(f"[{sector}] 에러: {e}", file=sys.stderr)
