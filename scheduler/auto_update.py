@@ -78,31 +78,45 @@ def current_bucket_start(lrgDiv: str, lrgDivNm: str) -> int:
     return candidates[-1][1]
 
 
+PROBE_COMPANY_LIMIT = 10
+
+
 def probe_quarter_available(lrgDiv: str, quarter: int) -> bool:
-    """회사 1개 + 통계표 1개로만 가볍게 조회해서 해당 분기 데이터가 FISIS에
-    올라왔는지 확인. 업권 전체를 다시 받기 전에 먼저 이걸로 걸러낸다."""
+    """통계표 1개로 회사를 최대 PROBE_COMPANY_LIMIT개까지 가볍게 조회해서
+    해당 분기 데이터가 FISIS에 올라왔는지 확인. 업권 전체를 다시 받기 전에
+    먼저 이걸로 걸러낸다.
+
+    회사 1개만 보면 안 되는 이유: 특정 회사가 그 통계표를 그 분기에 보고하지
+    않았을 뿐인데 "업권 전체가 아직 미공시"로 잘못 판단할 수 있음 - 실제로
+    증권사/신기술금융사에서 1~2번째 회사는 0건이었지만 3~5번째 회사는 있었음."""
     sml_div = Div_dict[lrgDiv]["SmlDiv"][0]
 
     companies = fisis_getter.getCompanySearch(partDiv=lrgDiv)
     company_list = [c for c in companies["result"]["list"] if "[폐]" not in c["finance_nm"]]
     if not company_list:
         return False
-    finance_cd = company_list[0]["finance_cd"]
 
     stat_list_result = fisis_getter.getStatisticsListSearch(lrgDiv=lrgDiv, smlDiv=sml_div)
     stat_list = stat_list_result["result"]["list"]
     if not stat_list:
         return False
-    list_no = stat_list[0]["list_no"]
+    # 생명보험/손해보험 등은 보고서 양식이 바뀐 시점(예: IFRS17 전환) 기준으로
+    # "YY.MM월 이전" 구버전 통계표가 목록 맨 앞에 오는 경우가 있음 - 그런 표로
+    # 최신 분기를 조회하면 당연히 비어있으니, 구버전이 아닌 표를 우선 사용
+    current_era = [s for s in stat_list if "이전" not in s["list_nm"]]
+    list_no = (current_era[0] if current_era else stat_list[0])["list_no"]
 
-    result = fisis_getter.getStatisticsInfoSearch(
-        financeCd=finance_cd, listNo=list_no, term="Q",
-        startBaseMm=str(quarter), endBaseMm=str(quarter),
-    )
-    if not result:
-        return False
-    res = result.get("result", {})
-    return res.get("err_cd") == "000" and len(res.get("list", [])) > 0
+    for company in company_list[:PROBE_COMPANY_LIMIT]:
+        result = fisis_getter.getStatisticsInfoSearch(
+            financeCd=company["finance_cd"], listNo=list_no, term="Q",
+            startBaseMm=str(quarter), endBaseMm=str(quarter),
+        )
+        if not result:
+            continue
+        res = result.get("result", {})
+        if res.get("err_cd") == "000" and len(res.get("list", [])) > 0:
+            return True
+    return False
 
 
 def run_step(args: list[str]) -> bool:
