@@ -21,14 +21,15 @@ REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
 
 from dashboard.loader import SECTOR_FOLDERS, load_sector_long  # noqa: E402
-from dashboard.kpis import build_kpi_table  # noqa: E402
+from dashboard.kpis import build_kpi_table, build_credit_rating_table  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
-# FISIS 원본 사이트의 저축은행 통계 분류 체계를 따름 (주요지표는 우리가 만든 요약 탭).
-# 내용은 아직 와꾸만 - 자산건전성 이후 11개는 준비중 placeholder.
+# FISIS 원본 사이트의 저축은행 통계 분류 체계를 따름. "주요 지표"는 신평사 평가요소표
+# 기준 요약(사업위험/재무위험), "최근 실적"은 기존 당기순이익/ROA/ROE 요약.
+# 자산건전성 이후 10개는 아직 준비중 placeholder.
 SAVINGS_BANK_TABS = [
-    "주요 지표", "수익성", "자산건전성", "여신건전성", "유동성",
+    "주요 지표", "최근 실적", "수익성", "자산건전성", "여신건전성", "유동성",
     "자산 현황", "부채 현황", "부문별 손익 현황", "대출금 운용",
     "자본적정성", "대차대조표", "손익계산서",
 ]
@@ -153,7 +154,7 @@ _SNAPSHOT_KEY_MAP = {
 }
 
 
-def build_sector_js_data(kpi: pd.DataFrame, companies: list[str]) -> dict:
+def build_sector_js_data(kpi: pd.DataFrame, companies: list[str], metrics=TREND_METRICS) -> dict:
     """회사 x 분기 전체 시계열을 JSON 구조로 변환 - 서버 없이 드롭다운으로
     회사/분기를 바꿔도 클라이언트에서 바로 차트를 다시 그릴 수 있게."""
     quarters = sorted(kpi["년월"].dropna().unique().tolist())
@@ -167,18 +168,20 @@ def build_sector_js_data(kpi: pd.DataFrame, companies: list[str]) -> dict:
              .reindex(quarters))
         series[company] = {
             metric: [None if pd.isna(v) else float(v) for v in g[metric]]
-            for metric in TREND_METRICS
+            for metric in metrics
         }
 
     return {"quarters": quarter_labels, "companies": companies, "series": series}
 
 
-def build_table_rows(snap_full: pd.DataFrame) -> list[dict]:
+def build_table_rows(snap_full: pd.DataFrame, columns=None, key_map=None) -> list[dict]:
+    columns = columns or TABLE_COLUMNS
+    key_map = key_map or _SNAPSHOT_KEY_MAP
     rows = []
     for _, r in snap_full.iterrows():
         row = {"company": r["금융회사명"]}
-        for key, _, _ in TABLE_COLUMNS:
-            v = r[_SNAPSHOT_KEY_MAP[key]]
+        for key, _, _ in columns:
+            v = r[key_map[key]]
             row[key] = None if pd.isna(v) else float(v)
         rows.append(row)
     return rows
@@ -258,6 +261,113 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
     )
 
 
+# ================================================================ 주요 지표(신평사 평가요소표 기준)
+CR_METRICS = [
+    "총자산시장점유율", "충당금적립전영업이익률", "ROA", "연체율",
+    "고정이하여신비율", "고정이하여신Coverage", "BIS자기자본비율", "유동성비율",
+]
+CR_TABLE_COLUMNS = [(m, m, format_pct) for m in CR_METRICS]
+CR_SNAPSHOT_KEY_MAP = {m: m for m in CR_METRICS}
+
+CR_NOTE = (
+    '<p class="caption">신평사 저축은행 평가요소표(사업위험/재무위험) 기준 핵심 지표예요. '
+    '정성평가 항목(경영관리능력, 대출포트폴리오 구성, 자본관리능력, 재무적 융통성)은 수치화가 안 돼서 제외했어요. '
+    '충당금적립전영업이익률은 FISIS에서 연 1회(4분기)만 공시돼서 다른 분기는 비어있어요.</p>'
+)
+
+
+def latest_cr_snapshot(cr_full: pd.DataFrame, company_order: list[str]) -> pd.DataFrame:
+    """신평사 지표용 스냅샷 - 회사마다 지표별 최신값을 독립적으로 집계."""
+    rows = []
+    for company in company_order:
+        g = cr_full[cr_full["금융회사명"] == company].sort_values("년월")
+        row = {"금융회사명": company}
+        for m in CR_METRICS:
+            m_row = g.dropna(subset=[m]).tail(1)
+            row[m] = m_row[m].iloc[0] if len(m_row) else pd.NA
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str]) -> str:
+    long_df = load_sector_long(sector)
+    cr = build_credit_rating_table(long_df)
+    cr_full = cr.merge(kpi[["금융회사명", "년월", "ROA"]], on=["금융회사명", "년월"], how="outer")
+
+    if cr_full.empty:
+        return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+
+    snap = latest_cr_snapshot(cr_full, company_order)
+
+    js_data = build_sector_js_data(cr_full, company_order, metrics=CR_METRICS)
+    js_data["nameSuffix"] = SECTOR_NAME_SUFFIX.get(sector, "")
+    js_data["tableRows"] = build_table_rows(snap, columns=CR_TABLE_COLUMNS, key_map=CR_SNAPSHOT_KEY_MAP)
+    data_script = (f'<script type="application/json" id="data-{sector_key}">'
+                    f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
+
+    metric_options = "".join(f'<option value="{m}">{m}</option>' for m in CR_METRICS)
+    quarter_options = "".join(
+        f'<option value="{q}"{" selected" if i == len(js_data["quarters"]) - 1 else ""}>{q}</option>'
+        for i, q in enumerate(js_data["quarters"])
+    )
+    company_options = "".join(f"<option value=\"{c}\">" for c in company_order)
+    default_company = company_order[0] if company_order else ""
+
+    year_options = ""
+    if js_data["quarters"]:
+        years = sorted({int(q.split(".")[0]) for q in js_data["quarters"]})
+        default_year = 2018 if 2018 in years else years[0]
+        year_options = "".join(
+            f'<option value="{y}"{" selected" if y == default_year else ""}>{y}년~</option>'
+            for y in years
+        )
+        year_options += '<option value="0">전체</option>'
+
+    bar_section = (
+        '<h4>회사별 지표 비교</h4>'
+        '<div class="control-row">'
+        '<label>지표 '
+        f'<select id="crMetricSelect-{sector_key}" onchange="onCrChange(\'{sector_key}\')">{metric_options}</select></label>'
+        '<label>기준 분기 '
+        f'<select id="crQuarterSelect-{sector_key}" onchange="onCrChange(\'{sector_key}\')">{quarter_options}</select></label>'
+        '</div>'
+        f'<div id="crBarChart-{sector_key}" class="plotly-chart"></div>'
+    )
+
+    trend_section = (
+        '<h4>회사별 추이</h4>'
+        '<div class="control-row">'
+        '<label>회사 선택(검색 가능) '
+        f'<input type="text" id="crCompanySelect-{sector_key}" list="crCompanyList-{sector_key}" '
+        f'value="{default_company}" oninput="onCrChange(\'{sector_key}\')"></label>'
+        f'<datalist id="crCompanyList-{sector_key}">{company_options}</datalist>'
+        '<label>조회 시작 '
+        f'<select id="crRangeSelect-{sector_key}" onchange="onCrChange(\'{sector_key}\')">{year_options}</select></label>'
+        '</div>'
+        f'<div id="crTrendChart-{sector_key}" class="plotly-chart"></div>'
+    )
+
+    table_head = "".join(
+        f'<th class="sortable" onclick="sortCrTable(\'{sector_key}\',\'{key}\')">{label} '
+        f'<span class="sort-arrow" id="crArrow-{sector_key}-{key}"></span></th>'
+        for key, label, _ in CR_TABLE_COLUMNS
+    )
+    table_section = (
+        '<h4>회사별 최신 지표</h4>'
+        f'<div style="overflow-x:auto;"><table class="data-table" id="crTable-{sector_key}">'
+        f'<thead><tr><th class="sortable" onclick="sortCrTable(\'{sector_key}\',\'company\')">No</th>'
+        f'<th class="sortable" onclick="sortCrTable(\'{sector_key}\',\'company\')">금융회사명 '
+        f'<span class="sort-arrow" id="crArrow-{sector_key}-company"></span></th>'
+        f'{table_head}</tr></thead>'
+        f'<tbody id="crTbody-{sector_key}"></tbody></table></div>'
+    )
+
+    return (
+        CR_NOTE + data_script + bar_section + trend_section + table_section +
+        f'<script>initCrSector("{sector_key}");</script>'
+    )
+
+
 def render_placeholder_tab(label: str) -> str:
     return f'<p class="caption">"{label}" 탭은 준비 중이에요. 곧 채워질 예정입니다.</p>'
 
@@ -266,12 +376,16 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     long_df = load_sector_long(sector)
     kpi = build_kpi_table(long_df)
     if kpi.empty or kpi["당기순이익"].dropna().empty:
-        main_content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
-    else:
-        snap_full = latest_snapshot_full(kpi)
-        main_content = render_main_tab_rich(sector_key, sector, kpi, snap_full)
+        empty = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+        bodies = [empty, empty] + [render_placeholder_tab(lbl) for lbl in SAVINGS_BANK_TABS[2:]]
+        return tabs_html(SAVINGS_BANK_TABS, bodies)
 
-    bodies = [main_content] + [render_placeholder_tab(lbl) for lbl in SAVINGS_BANK_TABS[1:]]
+    snap_full = latest_snapshot_full(kpi)
+    company_order = snap_full["금융회사명"].tolist()  # 당기순이익 내림차순, 두 탭 공통 정렬 기준
+    cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order)
+    perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full)
+
+    bodies = [cr_content, perf_content] + [render_placeholder_tab(lbl) for lbl in SAVINGS_BANK_TABS[2:]]
     return tabs_html(SAVINGS_BANK_TABS, bodies)
 
 
@@ -466,6 +580,84 @@ function renderTable(sector) {
   });
 }
 
+var CR_SORT_STATE = {};
+function initCrSector(sector) {
+  var el = document.getElementById('data-' + sector);
+  if (!el) return;
+  SECTOR_DATA[sector] = JSON.parse(el.textContent);
+  CR_SORT_STATE[sector] = {key: SECTOR_DATA[sector].quarters.length ? Object.keys(SECTOR_DATA[sector].series[SECTOR_DATA[sector].companies[0]])[0] : 'company', dir: -1};
+  renderCrBarChart(sector);
+  renderCrTrendChart(sector);
+  renderCrTable(sector);
+}
+function onCrChange(sector) { renderCrBarChart(sector); renderCrTrendChart(sector); }
+
+function renderCrBarChart(sector) {
+  var data = SECTOR_DATA[sector];
+  if (!data) return;
+  var metric = document.getElementById('crMetricSelect-' + sector).value;
+  var q = document.getElementById('crQuarterSelect-' + sector).value;
+  var qIdx = data.quarters.indexOf(q);
+  var pairs = data.companies
+    .map(function(c){ return [shortName(sector, c), data.series[c][metric][qIdx]]; })
+    .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
+  pairs.sort(function(a, b){ return b[1] - a[1]; });
+  Plotly.react('crBarChart-' + sector, [{
+    x:pairs.map(function(p){ return p[0]; }), y:pairs.map(function(p){ return p[1]; }),
+    type:'bar', marker:{color:'#2980B9'}
+  }], {
+    height:440, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:metric + '(%)'}
+  }, {displaylogo:false, responsive:true});
+}
+
+function renderCrTrendChart(sector) {
+  var data = SECTOR_DATA[sector];
+  if (!data) return;
+  var metric = document.getElementById('crMetricSelect-' + sector).value;
+  var company = document.getElementById('crCompanySelect-' + sector).value;
+  if (data.companies.indexOf(company) === -1) return;
+  var startYear = parseInt(document.getElementById('crRangeSelect-' + sector).value, 10);
+  var idx = data.quarters.map(function(q, i){ return i; })
+    .filter(function(i){ return startYear === 0 || parseInt(data.quarters[i].split('.')[0], 10) >= startYear; });
+  var quarters = idx.map(function(i){ return data.quarters[i]; });
+  var vals = idx.map(function(i){ return data.series[company][metric][i]; });
+  Plotly.react('crTrendChart-' + sector, [{
+    x:quarters, y:vals, mode:'lines+markers', connectgaps:true, line:{color:'#2980B9'}
+  }], {
+    height:380, margin:{t:40}, title:company + ' ' + metric + ' 추이', yaxis:{title:metric + '(%)'}
+  }, {displaylogo:false, responsive:true});
+}
+
+function sortCrTable(sector, key) {
+  var st = CR_SORT_STATE[sector];
+  if (st.key === key) st.dir = -st.dir; else { st.key = key; st.dir = key === 'company' ? 1 : -1; }
+  renderCrTable(sector);
+}
+function renderCrTable(sector) {
+  var data = SECTOR_DATA[sector];
+  var rows = data.tableRows.slice();
+  var st = CR_SORT_STATE[sector];
+  rows.sort(function(a, b){
+    var av = st.key === 'company' ? a.company : a[st.key];
+    var bv = st.key === 'company' ? b.company : b[st.key];
+    if (av === null || av === undefined) return 1;
+    if (bv === null || bv === undefined) return -1;
+    if (av < bv) return -1 * st.dir;
+    if (av > bv) return 1 * st.dir;
+    return 0;
+  });
+  var tbody = document.getElementById('crTbody-' + sector);
+  tbody.innerHTML = rows.map(function(r, i){
+    var cells = '<td>' + (i + 1) + '</td><td>' + r.company + '</td>';
+    CR_METRICS_JS.forEach(function(key){ cells += '<td>' + fmtCell('pct', r[key]) + '</td>'; });
+    return '<tr>' + cells + '</tr>';
+  }).join('');
+  ['company'].concat(CR_METRICS_JS).forEach(function(key){
+    var arrow = document.getElementById('crArrow-' + sector + '-' + key);
+    if (arrow) arrow.textContent = (st.key === key) ? (st.dir === 1 ? '▲' : '▼') : '';
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   var hash = location.hash.replace('#', '');
   var valid = document.getElementById('page-' + hash);
@@ -492,7 +684,8 @@ def build() -> str:
         page_divs.append(f'<div class="page" id="page-{key}"><h1>{s}</h1>{content}</div>')
 
     generated_at = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-    js = f'var DEFAULT_PAGE = "{page_keys[sectors[0]]}";\n' + JS
+    cr_metrics_js = json.dumps(CR_METRICS, ensure_ascii=False)
+    js = f'var DEFAULT_PAGE = "{page_keys[sectors[0]]}";\nvar CR_METRICS_JS = {cr_metrics_js};\n' + JS
 
     return f"""<!doctype html>
 <html lang="ko">

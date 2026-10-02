@@ -61,6 +61,51 @@ def extract_ratio(long_df: pd.DataFrame, keywords: list[str]) -> pd.DataFrame:
     return out
 
 
+def extract_exact(long_df: pd.DataFrame, table_name: str, gubun_exact: str, out_name: str) -> pd.DataFrame:
+    """통계표명/구분을 정확히 지정해서 값 하나를 뽑는 범용 추출기 (연체율, BIS비율,
+    자산총계처럼 FISIS 쪽 명칭이 이미 명확한 항목용 - extract_ratio의 fuzzy contains
+    매칭과 달리 오매칭 위험이 없음)."""
+    sub = long_df[(long_df["통계표명"] == table_name) & (long_df["구분"] == gubun_exact)]
+    sub = _pick_by_item_priority(sub, ["금융회사명", "년월", "통계표명", "구분"])
+    out = sub[["금융회사명", "년월", "값"]].drop_duplicates(subset=["금융회사명", "년월"])
+    return out.rename(columns={"값": out_name})
+
+
+def build_credit_rating_table(long_df: pd.DataFrame) -> pd.DataFrame:
+    """신평사 평가요소표(사업위험/재무위험) 기준 핵심 지표 테이블.
+
+    충당금적립전영업이익률 = (영업이익 + 대손상각비) / 총자산(평잔) * 100 (사용자 확인됨)
+    총자산 시장점유율 = 회사 자산총계 / 그 분기 업권 전체 자산총계 합 * 100
+    """
+    op_income = extract_income_line(long_df, "영업이익")
+    daeson = extract_exact(long_df, "요약손익계산서", "기타비용_충당부채전입액_대손상각비", "대손상각비")
+    avg_assets = extract_exact(long_df, "수익성", "총자산(평잔)", "총자산평잔")
+    total_assets = extract_exact(long_df, "요약재무상태표(자산)", "자산총계", "자산총계")
+
+    overdue_rate = extract_exact(long_df, "자산건전성", "연체율", "연체율")
+    substandard_ratio = extract_exact(long_df, "여신건전성", "고정이하여신비율", "고정이하여신비율")
+    coverage = extract_exact(long_df, "여신건전성", "대손충당금적립비율(고정이하여신대비)", "고정이하여신Coverage")
+    bis_ratio = extract_exact(long_df, "자본적정성(자본적정성지표)", "BIS기준 자기자본비율", "BIS자기자본비율")
+    liquidity_ratio = extract_exact(long_df, "유동성", "유동성비율", "유동성비율")
+
+    out = op_income.merge(daeson, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(avg_assets, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(total_assets, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(overdue_rate, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(substandard_ratio, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(coverage, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(bis_ratio, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(liquidity_ratio, on=["금융회사명", "년월"], how="outer")
+    out = out.sort_values(["금융회사명", "년월"]).reset_index(drop=True)
+
+    out["충당금적립전영업이익률"] = (out["영업이익"] + out["대손상각비"]) / out["총자산평잔"] * 100
+
+    industry_total = out.groupby("년월")["자산총계"].transform("sum")
+    out["총자산시장점유율"] = out["자산총계"] / industry_total * 100
+
+    return out
+
+
 def _yoy_growth(df: pd.DataFrame, value_col: str) -> pd.Series:
     """전년동기대비 증감률(%) - 년월은 YYYYMM이라 "1년 전 같은 분기"는 그냥 -100."""
     prior = df[["금융회사명", "년월", value_col]].copy()
