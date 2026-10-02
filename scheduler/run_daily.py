@@ -27,12 +27,12 @@ def log(msg: str) -> None:
 
 
 # Windows 작업 스케줄러로 실행하면 (Interactive 로그온인데도) 유저 site-packages
-# 경로(site.getusersitepackages())가 제대로 안 잡혀서 requests/pandas 등을 못 찾고
-# 바로 죽는 경우가 있었음 - PYTHONPATH로 명시해서 환경에 상관없이 항상 찾게 함
-try:
-    import site
-    _USER_SITE = site.getusersitepackages()
-except Exception:  # noqa: BLE001
+# 경로가 제대로 안 잡혀서 requests/pandas 등을 못 찾고 바로 죽는 경우가 있었음.
+# site.getusersitepackages()로 동적으로 계산해도 같은(깨진) 환경에서 계산되는
+# 거라 똑같이 틀어질 수 있어서, 실제 설치 경로를 하드코딩 - 다른 PC로 옮기면
+# `python -c "import site; print(site.getusersitepackages())"`로 다시 확인할 것
+_USER_SITE = r"C:\Users\infomax\AppData\Roaming\Python\Python314\site-packages"
+if not os.path.isdir(_USER_SITE):
     _USER_SITE = ""
 
 
