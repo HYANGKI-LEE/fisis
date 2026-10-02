@@ -10,10 +10,16 @@
 새로 추가한다 (과거 버킷인 200703_201612, 201703_202603 등은 건드리지 않고 그대로
 둠 - 2017년부터 매번 전체를 다시 받으면 업권당 수십 분~수 시간씩 걸림). 여러 분기가
 밀려있어도 한 번에 다 받지 않고 분기 하나씩만 처리하며, 다음 실행 때 그 다음 분기를
-또 감지해서 자연스럽게 따라잡는다. process.py/merge.py는 원래부터 long_df 밑에 여러
-기간 폴더가 있으면 전부 합쳐서 처리하는 구조라, 작은 증분 버킷을 새로 추가해도 기존
-버킷들과 자동으로 합쳐진다. 하나라도 갱신되면 cross_append.py로 보험사/캐피탈사
-후처리까지 실행.
+또 감지해서 자연스럽게 따라잡는다.
+
+주의: merge.py는 안 쓴다. merge.py는 "로컬에 있는 long_df/wide_df 전체"를 다시
+모아서 final_df를 새로 생성하는 구조인데, 이 저장소는 final_df만 git에 남기고
+long_df/wide_df는 로컬 전용(sparse-checkout)이라 과거 long_df가 로컬에 없음 -
+merge.py를 그대로 돌리면 "이번에 받은 새 분기만" 있는 걸로 final_df를 덮어써서
+과거 이력이 통째로 날아간다 (실제로 한 번 사고 났었음). 대신
+scheduler/incremental_merge.py로 새 분기 wide_df를 기존 final_df에 "추가"만 한다.
+
+하나라도 갱신되면 cross_append.py로 보험사/캐피탈사 후처리까지 실행.
 
 git commit/push는 이 스크립트가 아니라 run_daily.py 쪽에서 처리한다.
 """
@@ -29,6 +35,7 @@ sys.path.insert(0, REPO_ROOT)
 import fisis_getter  # noqa: E402
 from config import Div_dict  # noqa: E402
 from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path  # noqa: E402
+from scheduler.incremental_merge import merge_into_final_df  # noqa: E402
 
 PERIOD_RE = re.compile(r"_(\d{6})\.csv$")
 FOLDER_CODE_RE = re.compile(r"^\((\w)\)")
@@ -100,21 +107,31 @@ def probe_quarter_available(lrgDiv: str, quarter: int) -> bool:
     return False
 
 
+def _safe_print(text: str, file=None) -> None:
+    """콘솔 코드페이지(cp949)가 못 그리는 문자(예: UTF-8 디코딩 중 생긴 치환문자)
+    때문에 로그 출력 자체가 죽는 걸 방지."""
+    stream = file or sys.stdout
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    stream.write(text.encode(encoding, errors="replace").decode(encoding) + "\n")
+
+
 def run_step(args: list[str]) -> bool:
     print(">>>", " ".join(args), flush=True)
     result = subprocess.run(
-        args, cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        args, cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
     tail = result.stdout[-3000:]
     if tail:
-        print(tail)
+        _safe_print(tail)
     if result.returncode != 0:
-        print(result.stderr[-3000:], file=sys.stderr)
+        _safe_print(result.stderr[-3000:], file=sys.stderr)
     return result.returncode == 0
 
 
 def check_and_update_sector(sector: str, folder: str) -> bool:
     lrgDiv = sector_lrgdiv_code(folder)
+    lrgDivNm = Div_dict[lrgDiv]["Name"]
 
     existing = existing_max_period(sector)
     if existing is None:
@@ -141,15 +158,22 @@ def check_and_update_sector(sector: str, folder: str) -> bool:
     # {next_q}~오늘 범위를 다 받지 않고 분기 하나씩만 처리 - 다음 실행 때 그 다음
     # 분기를 또 감지해서 자연스럽게 따라잡는다.
     ok = run_step(
-        ["python", "request.py", "--lrgDiv_", lrgDiv,
+        [sys.executable, "request.py", "--lrgDiv_", lrgDiv,
          "--startBaseMm_", str(next_q), "--endBaseMm_", str(next_q)]
     )
     if not ok:
         print(f"[{sector}] request.py 실패")
         return False
 
-    run_step(["python", "process.py", "--lrgDiv_", lrgDiv])
-    run_step(["python", "merge.py", "--lrgDiv_", lrgDiv])
+    run_step([sys.executable, "process.py", "--lrgDiv_", lrgDiv])
+
+    try:
+        new_path = merge_into_final_df(sector, lrgDiv, lrgDivNm)
+    except Exception as e:  # noqa: BLE001
+        print(f"[{sector}] final_df 병합 실패: {e}")
+        return False
+    if new_path:
+        print(f"[{sector}] final_df 갱신: {new_path}")
 
     new_existing = existing_max_period(sector)
     updated = new_existing is not None and new_existing != existing
@@ -174,8 +198,8 @@ def main() -> bool:
 
     if any_updated:
         print("=== 업권 데이터 갱신됨 - 보험사/캐피탈사 후처리(cross_append) 실행 ===")
-        run_step(["python", "cross_append.py", "--Category_", "보험사"])
-        run_step(["python", "cross_append.py", "--Category_", "캐피탈사"])
+        run_step([sys.executable, "cross_append.py", "--Category_", "보험사"])
+        run_step([sys.executable, "cross_append.py", "--Category_", "캐피탈사"])
     else:
         print("=== 새로 공시된 분기 없음 - 아무 작업도 하지 않음 ===")
 
