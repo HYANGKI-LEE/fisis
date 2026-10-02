@@ -266,27 +266,13 @@ CR_METRICS = [
     "총자산시장점유율", "충당금적립전영업이익률", "ROA", "연체율",
     "고정이하여신비율", "고정이하여신Coverage", "BIS자기자본비율", "유동성비율",
 ]
-CR_TABLE_COLUMNS = [(m, m, format_pct) for m in CR_METRICS]
-CR_SNAPSHOT_KEY_MAP = {m: m for m in CR_METRICS}
-
 CR_NOTE = (
     '<p class="caption">신평사 저축은행 평가요소표(사업위험/재무위험) 기준 핵심 지표예요. '
     '정성평가 항목(경영관리능력, 대출포트폴리오 구성, 자본관리능력, 재무적 융통성)은 수치화가 안 돼서 제외했어요. '
     '충당금적립전영업이익률은 FISIS에서 연 1회(4분기)만 공시돼서 다른 분기는 비어있어요.</p>'
 )
 
-
-def latest_cr_snapshot(cr_full: pd.DataFrame, company_order: list[str]) -> pd.DataFrame:
-    """신평사 지표용 스냅샷 - 회사마다 지표별 최신값을 독립적으로 집계."""
-    rows = []
-    for company in company_order:
-        g = cr_full[cr_full["금융회사명"] == company].sort_values("년월")
-        row = {"금융회사명": company}
-        for m in CR_METRICS:
-            m_row = g.dropna(subset=[m]).tail(1)
-            row[m] = m_row[m].iloc[0] if len(m_row) else pd.NA
-        rows.append(row)
-    return pd.DataFrame(rows)
+RANGE_PRESETS = ["1Y", "3Y", "5Y", "10Y", "전체", "설정"]
 
 
 def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str]) -> str:
@@ -297,11 +283,8 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     if cr_full.empty:
         return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
 
-    snap = latest_cr_snapshot(cr_full, company_order)
-
     js_data = build_sector_js_data(cr_full, company_order, metrics=CR_METRICS)
     js_data["nameSuffix"] = SECTOR_NAME_SUFFIX.get(sector, "")
-    js_data["tableRows"] = build_table_rows(snap, columns=CR_TABLE_COLUMNS, key_map=CR_SNAPSHOT_KEY_MAP)
     data_script = (f'<script type="application/json" id="data-{sector_key}">'
                     f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
 
@@ -312,16 +295,6 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     )
     company_options = "".join(f"<option value=\"{c}\">" for c in company_order)
     default_company = company_order[0] if company_order else ""
-
-    year_options = ""
-    if js_data["quarters"]:
-        years = sorted({int(q.split(".")[0]) for q in js_data["quarters"]})
-        default_year = 2018 if 2018 in years else years[0]
-        year_options = "".join(
-            f'<option value="{y}"{" selected" if y == default_year else ""}>{y}년~</option>'
-            for y in years
-        )
-        year_options += '<option value="0">전체</option>'
 
     bar_section = (
         '<h4>회사별 지표 비교</h4>'
@@ -334,36 +307,36 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
         f'<div id="crBarChart-{sector_key}" class="plotly-chart"></div>'
     )
 
-    trend_section = (
+    range_btns = "".join(
+        f'<button data-preset="{p}" onclick="{"toggleCrCustom" if p == "설정" else "applyCrPeriod"}'
+        f'(\'{sector_key}\'{"" if p == "설정" else f",\'{p}\'"},this)">{p}</button>'
+        for p in RANGE_PRESETS
+    )
+    controls = (
         '<h4>회사별 추이</h4>'
         '<div class="control-row">'
         '<label>회사 선택(검색 가능) '
         f'<input type="text" id="crCompanySelect-{sector_key}" list="crCompanyList-{sector_key}" '
-        f'value="{default_company}" oninput="onCrChange(\'{sector_key}\')"></label>'
+        f'value="{default_company}" autocomplete="off" '
+        f'onfocus="crCompanyFocus(this)" onblur="crCompanyBlur(\'{sector_key}\',this)" '
+        f'oninput="onCrChange(\'{sector_key}\')"></label>'
         f'<datalist id="crCompanyList-{sector_key}">{company_options}</datalist>'
-        '<label>조회 시작 '
-        f'<select id="crRangeSelect-{sector_key}" onchange="onCrChange(\'{sector_key}\')">{year_options}</select></label>'
         '</div>'
-        f'<div id="crTrendChart-{sector_key}" class="plotly-chart"></div>'
+        f'<div class="period-bar" data-scope="{sector_key}">'
+        f'<span class="period-label">기간</span>{range_btns}</div>'
+        f'<div class="custom-range" id="{sector_key}-customBox">'
+        f'<input type="text" id="{sector_key}-start" placeholder="2018.Q1" style="width:90px;"> ~ '
+        f'<input type="text" id="{sector_key}-end" placeholder="2026.Q2" style="width:90px;"> '
+        f'<button onclick="applyCrCustomRange(\'{sector_key}\')">적용</button></div>'
     )
 
-    table_head = "".join(
-        f'<th class="sortable" onclick="sortCrTable(\'{sector_key}\',\'{key}\')">{label} '
-        f'<span class="sort-arrow" id="crArrow-{sector_key}-{key}"></span></th>'
-        for key, label, _ in CR_TABLE_COLUMNS
-    )
-    table_section = (
-        '<h4>회사별 최신 지표</h4>'
-        f'<div style="overflow-x:auto;"><table class="data-table" id="crTable-{sector_key}">'
-        f'<thead><tr><th class="sortable" onclick="sortCrTable(\'{sector_key}\',\'company\')">No</th>'
-        f'<th class="sortable" onclick="sortCrTable(\'{sector_key}\',\'company\')">금융회사명 '
-        f'<span class="sort-arrow" id="crArrow-{sector_key}-company"></span></th>'
-        f'{table_head}</tr></thead>'
-        f'<tbody id="crTbody-{sector_key}"></tbody></table></div>'
+    trend_sections = "".join(
+        f'<h4>{m}</h4><div id="crTrend-{sector_key}-{i}" class="plotly-chart"></div>'
+        for i, m in enumerate(CR_METRICS)
     )
 
     return (
-        CR_NOTE + data_script + bar_section + trend_section + table_section +
+        CR_NOTE + data_script + bar_section + controls + trend_sections +
         f'<script>initCrSector("{sector_key}");</script>'
     )
 
@@ -429,10 +402,20 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
 .tab-panel { display:none; }
 .tab-panel.active { display:block; }
-.control-row { margin:10px 0 16px; font-size:14px; }
+.control-row { margin:10px 0 16px; font-size:14px; display:flex; flex-wrap:wrap; gap:16px; }
 .control-row label { display:flex; align-items:center; gap:8px; }
 .control-row select, .control-row input { border:1px solid var(--border); border-radius:6px; padding:6px 10px;
                                            font-size:14px; min-width:220px; }
+.period-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:10px 0 16px;
+              padding-bottom:12px; border-bottom:1px solid var(--border); }
+.period-label { font-size:13px; color:var(--muted); margin-right:6px; }
+.period-bar button { border:1px solid var(--border); background:#fff; border-radius:6px; padding:5px 11px;
+                      font-size:13px; cursor:pointer; color:var(--text); }
+.period-bar button:hover { background:#f2f4f7; }
+.period-bar button.active { background:#fdecea; border-color:#e8a39b; color:#c0392b; font-weight:600; }
+.custom-range { display:none; align-items:center; gap:6px; margin:-8px 0 16px; font-size:13px; }
+.custom-range.show { display:flex; }
+.custom-range input { border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; }
 @media (max-width: 900px) {
   #sidebar { position:fixed; left:-240px; transition:left .2s; z-index:20; box-shadow:2px 0 8px rgba(0,0,0,.1); }
   #sidebar.open { left:0; }
@@ -580,17 +563,24 @@ function renderTable(sector) {
   });
 }
 
-var CR_SORT_STATE = {};
+var CR_RANGE = {};
+
 function initCrSector(sector) {
   var el = document.getElementById('data-' + sector);
   if (!el) return;
   SECTOR_DATA[sector] = JSON.parse(el.textContent);
-  CR_SORT_STATE[sector] = {key: SECTOR_DATA[sector].quarters.length ? Object.keys(SECTOR_DATA[sector].series[SECTOR_DATA[sector].companies[0]])[0] : 'company', dir: -1};
+  CR_RANGE[sector] = {preset: '5Y', start: null, end: null};
   renderCrBarChart(sector);
-  renderCrTrendChart(sector);
-  renderCrTable(sector);
+  var btn = document.querySelector('.period-bar[data-scope="' + sector + '"] button[data-preset="5Y"]');
+  applyCrPeriod(sector, '5Y', btn);
 }
-function onCrChange(sector) { renderCrBarChart(sector); renderCrTrendChart(sector); }
+function onCrChange(sector) { renderCrBarChart(sector); renderAllCrTrends(sector); }
+
+function emptyChartMsg(id, msg) {
+  var el = document.getElementById(id);
+  if (window.Plotly) Plotly.purge(el);
+  el.innerHTML = '<p class="caption" style="padding:40px 0;text-align:center;">' + msg + '</p>';
+}
 
 function renderCrBarChart(sector) {
   var data = SECTOR_DATA[sector];
@@ -601,8 +591,13 @@ function renderCrBarChart(sector) {
   var pairs = data.companies
     .map(function(c){ return [shortName(sector, c), data.series[c][metric][qIdx]]; })
     .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
+  var elId = 'crBarChart-' + sector;
+  if (pairs.length === 0) {
+    emptyChartMsg(elId, '이 분기엔 ' + metric + ' 데이터가 없어요. 다른 분기를 선택해보세요.');
+    return;
+  }
   pairs.sort(function(a, b){ return b[1] - a[1]; });
-  Plotly.react('crBarChart-' + sector, [{
+  Plotly.react(elId, [{
     x:pairs.map(function(p){ return p[0]; }), y:pairs.map(function(p){ return p[1]; }),
     type:'bar', marker:{color:'#2980B9'}
   }], {
@@ -610,52 +605,93 @@ function renderCrBarChart(sector) {
   }, {displaylogo:false, responsive:true});
 }
 
-function renderCrTrendChart(sector) {
-  var data = SECTOR_DATA[sector];
-  if (!data) return;
-  var metric = document.getElementById('crMetricSelect-' + sector).value;
-  var company = document.getElementById('crCompanySelect-' + sector).value;
-  if (data.companies.indexOf(company) === -1) return;
-  var startYear = parseInt(document.getElementById('crRangeSelect-' + sector).value, 10);
-  var idx = data.quarters.map(function(q, i){ return i; })
-    .filter(function(i){ return startYear === 0 || parseInt(data.quarters[i].split('.')[0], 10) >= startYear; });
-  var quarters = idx.map(function(i){ return data.quarters[i]; });
-  var vals = idx.map(function(i){ return data.series[company][metric][i]; });
-  Plotly.react('crTrendChart-' + sector, [{
-    x:quarters, y:vals, mode:'lines+markers', connectgaps:true, line:{color:'#2980B9'}
-  }], {
-    height:380, margin:{t:40}, title:company + ' ' + metric + ' 추이', yaxis:{title:metric + '(%)'}
-  }, {displaylogo:false, responsive:true});
+// 회사 검색창: 포커스하면 입력값을 비워서(복원용으로 저장) datalist 전체 목록이 보이게 함
+function crCompanyFocus(el) {
+  el.dataset.prev = el.value;
+  el.value = '';
+}
+function crCompanyBlur(sector, el) {
+  if (!el.value) el.value = el.dataset.prev || '';
+  onCrChange(sector);
 }
 
-function sortCrTable(sector, key) {
-  var st = CR_SORT_STATE[sector];
-  if (st.key === key) st.dir = -st.dir; else { st.key = key; st.dir = key === 'company' ? 1 : -1; }
-  renderCrTable(sector);
+function quarterIndexFromEnd(quarters, nYears) {
+  return Math.max(0, quarters.length - nYears * 4);
 }
-function renderCrTable(sector) {
+function crRangeIndices(sector) {
   var data = SECTOR_DATA[sector];
-  var rows = data.tableRows.slice();
-  var st = CR_SORT_STATE[sector];
-  rows.sort(function(a, b){
-    var av = st.key === 'company' ? a.company : a[st.key];
-    var bv = st.key === 'company' ? b.company : b[st.key];
-    if (av === null || av === undefined) return 1;
-    if (bv === null || bv === undefined) return -1;
-    if (av < bv) return -1 * st.dir;
-    if (av > bv) return 1 * st.dir;
-    return 0;
+  var r = CR_RANGE[sector];
+  var n = data.quarters.length;
+  if (r.preset === '전체') return data.quarters.map(function(_, i){ return i; });
+  if (r.preset === '설정' && r.start && r.end) {
+    var s = data.quarters.indexOf(r.start), e = data.quarters.indexOf(r.end);
+    if (s === -1 || e === -1) return data.quarters.map(function(_, i){ return i; });
+    return data.quarters.map(function(_, i){ return i; }).filter(function(i){ return i >= s && i <= e; });
+  }
+  var years = {'1Y':1, '3Y':3, '5Y':5, '10Y':10}[r.preset] || 5;
+  var start = quarterIndexFromEnd(data.quarters, years);
+  return data.quarters.map(function(_, i){ return i; }).filter(function(i){ return i >= start; });
+}
+function applyCrPeriod(sector, preset, btn) {
+  CR_RANGE[sector].preset = preset;
+  var bar = document.querySelector('.period-bar[data-scope="' + sector + '"]');
+  bar.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  document.getElementById(sector + '-customBox').classList.remove('show');
+  renderAllCrTrends(sector);
+}
+function toggleCrCustom(sector, btn) {
+  document.getElementById(sector + '-customBox').classList.toggle('show');
+  var bar = document.querySelector('.period-bar[data-scope="' + sector + '"]');
+  bar.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+}
+function applyCrCustomRange(sector) {
+  var s = document.getElementById(sector + '-start').value.trim();
+  var e = document.getElementById(sector + '-end').value.trim();
+  if (!s || !e) return;
+  CR_RANGE[sector] = {preset: '설정', start: s, end: e};
+  renderAllCrTrends(sector);
+}
+
+function industryAverage(data, metric, idx) {
+  return idx.map(function(i){
+    var sum = 0, n = 0;
+    data.companies.forEach(function(c){
+      var v = data.series[c][metric][i];
+      if (v !== null && v !== undefined) { sum += v; n += 1; }
+    });
+    return n ? sum / n : null;
   });
-  var tbody = document.getElementById('crTbody-' + sector);
-  tbody.innerHTML = rows.map(function(r, i){
-    var cells = '<td>' + (i + 1) + '</td><td>' + r.company + '</td>';
-    CR_METRICS_JS.forEach(function(key){ cells += '<td>' + fmtCell('pct', r[key]) + '</td>'; });
-    return '<tr>' + cells + '</tr>';
-  }).join('');
-  ['company'].concat(CR_METRICS_JS).forEach(function(key){
-    var arrow = document.getElementById('crArrow-' + sector + '-' + key);
-    if (arrow) arrow.textContent = (st.key === key) ? (st.dir === 1 ? '▲' : '▼') : '';
-  });
+}
+
+function renderAllCrTrends(sector) {
+  CR_METRICS_JS.forEach(function(m, i){ renderCrTrend(sector, i, m); });
+}
+function renderCrTrend(sector, i, metric) {
+  var data = SECTOR_DATA[sector];
+  var company = document.getElementById('crCompanySelect-' + sector).value;
+  var elId = 'crTrend-' + sector + '-' + i;
+  if (data.companies.indexOf(company) === -1) {
+    emptyChartMsg(elId, '회사를 선택해주세요.');
+    return;
+  }
+  var idx = crRangeIndices(sector);
+  var quarters = idx.map(function(j){ return data.quarters[j]; });
+  var avgVals = industryAverage(data, metric, idx);
+  var companyVals = idx.map(function(j){ return data.series[company][metric][j]; });
+  if (avgVals.every(function(v){ return v === null; }) && companyVals.every(function(v){ return v === null; })) {
+    emptyChartMsg(elId, '이 기간엔 ' + metric + ' 데이터가 없어요.');
+    return;
+  }
+  Plotly.react(elId, [
+    {x:quarters, y:avgVals, mode:'lines+markers', connectgaps:true, name:'업권 평균',
+     line:{color:'#999', dash:'dot'}},
+    {x:quarters, y:companyVals, mode:'lines+markers', connectgaps:true, name:shortName(sector, company),
+     line:{color:'#2980B9', width:2.5}}
+  ], {
+    height:320, margin:{t:20}, yaxis:{title:metric + '(%)'}, legend:{orientation:'h', y:-0.2}
+  }, {displaylogo:false, responsive:true});
 }
 
 document.addEventListener('DOMContentLoaded', function() {
