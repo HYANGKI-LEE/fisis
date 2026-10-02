@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO_DIR))
 
 from dashboard.loader import SECTOR_FOLDERS, load_sector_long  # noqa: E402
 from dashboard.kpis import build_kpi_table  # noqa: E402
-from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot  # noqa: E402
+from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
 # FISIS 원본 사이트의 저축은행 통계 분류 체계를 따름 (주요지표는 우리가 만든 요약 탭).
@@ -129,12 +129,35 @@ def render_sector(sector: str) -> str:
 
 
 # ================================================================ 저축은행: 탭 12개 레이아웃
-def build_sector_js_data(kpi: pd.DataFrame, snap: pd.DataFrame) -> dict:
+TREND_METRICS = ("당기순이익", "ROA", "ROE")
+
+# 회사명 x축 라벨은 업권 접미사를 떼서 짧게("오케이저축은행" -> "오케이")
+SECTOR_NAME_SUFFIX = {"상호저축은행": "저축은행"}
+
+TABLE_COLUMNS = [
+    # (키, 표시 헤더, 포맷 함수, 정렬 기준이 되는 kpi 컬럼명)
+    ("revenue", "영업수익", format_eok),
+    ("opIncome", "영업이익", format_eok),
+    ("opMargin", "영업이익률", format_pct),
+    ("opYoy", "전년대비증감률", format_pct),
+    ("netIncome", "당기순이익", format_eok),
+    ("netMargin", "당기순이익률", format_pct),
+    ("netYoy", "전년대비증감률", format_pct),
+    ("roa", "ROA", format_pct),
+    ("roe", "ROE", format_pct),
+]
+_SNAPSHOT_KEY_MAP = {
+    "revenue": "영업수익", "opIncome": "영업이익", "opMargin": "영업이익률",
+    "opYoy": "영업이익_전년대비증감률", "netIncome": "당기순이익", "netMargin": "당기순이익률",
+    "netYoy": "당기순이익_전년대비증감률", "roa": "ROA", "roe": "ROE",
+}
+
+
+def build_sector_js_data(kpi: pd.DataFrame, companies: list[str]) -> dict:
     """회사 x 분기 전체 시계열을 JSON 구조로 변환 - 서버 없이 드롭다운으로
     회사/분기를 바꿔도 클라이언트에서 바로 차트를 다시 그릴 수 있게."""
     quarters = sorted(kpi["년월"].dropna().unique().tolist())
     quarter_labels = [format_ym(q) for q in quarters]
-    companies = snap["금융회사명"].tolist()  # 이미 당기순이익 내림차순 정렬됨
 
     series = {}
     for company in companies:
@@ -144,22 +167,31 @@ def build_sector_js_data(kpi: pd.DataFrame, snap: pd.DataFrame) -> dict:
              .reindex(quarters))
         series[company] = {
             metric: [None if pd.isna(v) else float(v) for v in g[metric]]
-            for metric in ("당기순이익", "ROA", "ROE")
+            for metric in TREND_METRICS
         }
 
     return {"quarters": quarter_labels, "companies": companies, "series": series}
 
 
-def render_main_tab_rich(sector_key: str, kpi: pd.DataFrame, snap: pd.DataFrame) -> str:
-    display = snap.copy()
-    display["기준분기"] = display["기준분기"].map(format_ym)
-    display["당기순이익"] = display["당기순이익"].map(format_eok)
-    display["전기대비증감률"] = display["전기대비증감률"].map(format_pct)
-    display["ROA"] = display["ROA"].map(format_pct)
-    display["ROE"] = display["ROE"].map(format_pct)
-    table_html = df_to_html(display)
+def build_table_rows(snap_full: pd.DataFrame) -> list[dict]:
+    rows = []
+    for _, r in snap_full.iterrows():
+        row = {"company": r["금융회사명"]}
+        for key, _, _ in TABLE_COLUMNS:
+            v = r[_SNAPSHOT_KEY_MAP[key]]
+            row[key] = None if pd.isna(v) else float(v)
+        rows.append(row)
+    return rows
 
-    js_data = build_sector_js_data(kpi, snap)
+
+def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_full: pd.DataFrame) -> str:
+    companies = snap_full["금융회사명"].tolist()  # 당기순이익 내림차순
+    name_suffix = SECTOR_NAME_SUFFIX.get(sector, "")
+    latest_q = format_ym(snap_full["기준분기"].max())
+
+    js_data = build_sector_js_data(kpi, companies)
+    js_data["nameSuffix"] = name_suffix
+    js_data["tableRows"] = build_table_rows(snap_full)
     data_script = (f'<script type="application/json" id="data-{sector_key}">'
                     f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
 
@@ -167,8 +199,18 @@ def render_main_tab_rich(sector_key: str, kpi: pd.DataFrame, snap: pd.DataFrame)
         f'<option value="{q}"{" selected" if i == len(js_data["quarters"]) - 1 else ""}>{q}</option>'
         for i, q in enumerate(js_data["quarters"])
     )
-    company_options = "".join(f"<option value=\"{c}\">" for c in js_data["companies"])
-    default_company = js_data["companies"][0] if js_data["companies"] else ""
+    company_options = "".join(f"<option value=\"{c}\">" for c in companies)
+    default_company = companies[0] if companies else ""
+
+    year_options = ""
+    if js_data["quarters"]:
+        years = sorted({int(q.split(".")[0]) for q in js_data["quarters"]})
+        default_year = 2018 if 2018 in years else years[0]
+        year_options = "".join(
+            f'<option value="{y}"{" selected" if y == default_year else ""}>{y}년~</option>'
+            for y in years
+        )
+        year_options += f'<option value="0">전체</option>'
 
     bar_section = (
         '<h4>회사별 실적 비교</h4>'
@@ -180,19 +222,38 @@ def render_main_tab_rich(sector_key: str, kpi: pd.DataFrame, snap: pd.DataFrame)
 
     trend_section = (
         '<h4>회사별 추이</h4>'
-        '<div class="control-row"><label>회사 선택(검색 가능) '
+        '<div class="control-row">'
+        '<label>회사 선택(검색 가능) '
         f'<input type="text" id="companySelect-{sector_key}" list="companyList-{sector_key}" '
         f'value="{default_company}" oninput="onCompanyChange(\'{sector_key}\')"></label>'
-        f'<datalist id="companyList-{sector_key}">{company_options}</datalist></div>'
+        f'<datalist id="companyList-{sector_key}">{company_options}</datalist>'
+        '<label>조회 시작 '
+        f'<select id="rangeSelect-{sector_key}" onchange="onCompanyChange(\'{sector_key}\')">'
+        f'{year_options}</select></label>'
+        '</div>'
         f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
         f'<div class="cell"><div id="trendNI-{sector_key}" class="plotly-chart"></div></div>'
         f'<div class="cell"><div id="trendRoaRoe-{sector_key}" class="plotly-chart"></div></div>'
         f'</div>'
     )
 
+    table_head = "".join(
+        f'<th class="sortable" onclick="sortTable(\'{sector_key}\',\'{key}\')">{label} <span class="sort-arrow" '
+        f'id="arrow-{sector_key}-{key}"></span></th>'
+        for key, label, _ in TABLE_COLUMNS
+    )
+    table_section = (
+        f'<h4>회사별 최신 실적 <span class="caption" style="font-weight:normal;">({latest_q} 기준)</span></h4>'
+        f'<div style="overflow-x:auto;"><table class="data-table" id="table-{sector_key}">'
+        f'<thead><tr><th class="sortable" onclick="sortTable(\'{sector_key}\',\'company\')">No</th>'
+        f'<th class="sortable" onclick="sortTable(\'{sector_key}\',\'company\')">금융회사명 '
+        f'<span class="sort-arrow" id="arrow-{sector_key}-company"></span></th>'
+        f'{table_head}</tr></thead>'
+        f'<tbody id="tbody-{sector_key}"></tbody></table></div>'
+    )
+
     return (
-        data_script + bar_section + trend_section +
-        f'<h4>회사별 최신 실적</h4>{table_html}'
+        data_script + bar_section + trend_section + table_section +
         f'<script>initSectorMain("{sector_key}");</script>'
     )
 
@@ -207,8 +268,8 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     if kpi.empty or kpi["당기순이익"].dropna().empty:
         main_content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
     else:
-        snap = latest_snapshot(kpi)
-        main_content = render_main_tab_rich(sector_key, kpi, snap)
+        snap_full = latest_snapshot_full(kpi)
+        main_content = render_main_tab_rich(sector_key, sector, kpi, snap_full)
 
     bodies = [main_content] + [render_placeholder_tab(lbl) for lbl in SAVINGS_BANK_TABS[1:]]
     return tabs_html(SAVINGS_BANK_TABS, bodies)
@@ -227,9 +288,10 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
              text-decoration:none; font-size:15px; margin-bottom:2px; }
 #sidebar a:hover { background:#eceff3; }
 #sidebar a.active { background:#e3edf7; color:var(--accent); font-weight:600; }
-#main { flex:1; min-width:0; padding:24px 32px 60px; }
-#main h1 { font-size:28px; margin:0 0 6px; }
-#top-note { color:var(--muted); font-size:13px; margin-bottom:18px; }
+#main { flex:1; min-width:0; padding:0 32px 60px; }
+#main h1 { font-size:28px; margin:0; padding:20px 0 10px; position:sticky; top:0;
+           background:var(--bg); z-index:6; }
+#top-note { color:var(--muted); font-size:13px; padding-top:16px; margin-bottom:-8px; }
 .page { display:none; }
 .page.active { display:block; }
 .grid { display:grid; gap:16px; margin:10px 0; }
@@ -238,12 +300,15 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .caption { color:var(--muted); font-size:13px; margin:4px 0 10px; }
 .caption a { color:var(--accent); }
 .data-table { width:100%; border-collapse:collapse; font-size:14px; margin:10px 0; }
-.data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; }
+.data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; white-space:nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align:left; }
-.data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; }
-.tabgroup { margin-top:8px; }
+.data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
+.data-table th.sortable { cursor:pointer; user-select:none; }
+.data-table th.sortable:hover { color:var(--accent); }
+.sort-arrow { font-size:11px; color:var(--accent); }
+.tabgroup { margin-top:0; }
 .tab-bar { display:flex; gap:4px; border-bottom:2px solid var(--border); margin-bottom:16px;
-           overflow-x:auto; flex-wrap:nowrap; }
+           overflow-x:auto; flex-wrap:nowrap; position:sticky; top:58px; background:var(--bg); z-index:5; }
 .tab-btn { border:none; background:none; padding:10px 14px; font-size:14px; cursor:pointer; color:var(--muted);
            border-bottom:2px solid transparent; margin-bottom:-2px; white-space:nowrap; }
 .tab-btn:hover { color:var(--text); }
@@ -292,12 +357,24 @@ function renderChart(id) {
 }
 
 var SECTOR_DATA = {};
+var SORT_STATE = {};
+
+function shortName(sector, name) {
+  var data = SECTOR_DATA[sector];
+  if (data.nameSuffix && name.indexOf(data.nameSuffix) !== -1) {
+    return name.split(data.nameSuffix).join('');
+  }
+  return name;
+}
+
 function initSectorMain(sector) {
   var el = document.getElementById('data-' + sector);
   if (!el) return;
   SECTOR_DATA[sector] = JSON.parse(el.textContent);
+  SORT_STATE[sector] = {key: 'netIncome', dir: -1};
   renderBarChart(sector);
   renderTrendCharts(sector);
+  renderTable(sector);
 }
 function onQuarterChange(sector) { renderBarChart(sector); }
 function onCompanyChange(sector) { renderTrendCharts(sector); }
@@ -308,13 +385,14 @@ function renderBarChart(sector) {
   var q = document.getElementById('quarterSelect-' + sector).value;
   var qIdx = data.quarters.indexOf(q);
   var pairs = data.companies
-    .map(function(c){ return [c, data.series[c]['당기순이익'][qIdx]]; })
-    .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
+    .map(function(c){ return [shortName(sector, c), data.series[c]['당기순이익'][qIdx]]; })
+    .filter(function(p){ return p[1] !== null && p[1] !== undefined; })
+    .map(function(p){ return [p[0], p[1] / 1e8]; });
   pairs.sort(function(a, b){ return b[1] - a[1]; });
   var x = pairs.map(function(p){ return p[0]; });
   var y = pairs.map(function(p){ return p[1]; });
   Plotly.react('barChart-' + sector, [{x:x, y:y, type:'bar', marker:{color:'#2980B9'}}], {
-    height:420, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:'당기순이익(원)'}
+    height:440, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:'당기순이익(억원)'}
   }, {displaylogo:false, responsive:true});
 }
 
@@ -323,19 +401,69 @@ function renderTrendCharts(sector) {
   if (!data) return;
   var company = document.getElementById('companySelect-' + sector).value;
   if (data.companies.indexOf(company) === -1) return;
+  var startYear = parseInt(document.getElementById('rangeSelect-' + sector).value, 10);
+  var idx = data.quarters.map(function(q, i){ return i; })
+    .filter(function(i){ return startYear === 0 || parseInt(data.quarters[i].split('.')[0], 10) >= startYear; });
+  var quarters = idx.map(function(i){ return data.quarters[i]; });
   var s = data.series[company];
-  Plotly.react('trendNI-' + sector, [{x:data.quarters, y:s['당기순이익'], type:'bar', marker:{color:'#2980B9'}}], {
+  var pick = function(arr){ return idx.map(function(i){ return arr[i]; }); };
+
+  Plotly.react('trendNI-' + sector, [{x:quarters, y:pick(s['당기순이익']), type:'bar', marker:{color:'#2980B9'}}], {
     height:360, margin:{t:40}, title:company + ' 당기순이익 추이', yaxis:{title:'당기순이익(원)'}
   }, {displaylogo:false, responsive:true});
 
   var traces = [];
-  if (s['ROA'].some(function(v){ return v !== null; }))
-    traces.push({x:data.quarters, y:s['ROA'], mode:'lines+markers', name:'ROA'});
   if (s['ROE'].some(function(v){ return v !== null; }))
-    traces.push({x:data.quarters, y:s['ROE'], mode:'lines+markers', name:'ROE'});
+    traces.push({x:quarters, y:pick(s['ROE']), mode:'lines+markers', name:'ROE', connectgaps:true,
+                 line:{color:'#2980B9'}, yaxis:'y'});
+  if (s['ROA'].some(function(v){ return v !== null; }))
+    traces.push({x:quarters, y:pick(s['ROA']), mode:'lines+markers', name:'ROA', connectgaps:true,
+                 line:{color:'#E67E22'}, yaxis:'y2'});
   Plotly.react('trendRoaRoe-' + sector, traces, {
-    height:360, margin:{t:40}, title:company + ' ROA / ROE 추이', yaxis:{title:'%'}
+    height:360, margin:{t:40, r:50}, title:company + ' ROA / ROE 추이',
+    yaxis:{title:'ROE(%)'}, yaxis2:{title:'ROA(%)', overlaying:'y', side:'right'},
+    legend:{orientation:'h', y:-0.2}
   }, {displaylogo:false, responsive:true});
+}
+
+var TABLE_COLS = ["revenue","opIncome","opMargin","opYoy","netIncome","netMargin","netYoy","roa","roe"];
+var TABLE_FMT = {
+  revenue:'eok', opIncome:'eok', opMargin:'pct', opYoy:'pct',
+  netIncome:'eok', netMargin:'pct', netYoy:'pct', roa:'pct', roe:'pct'
+};
+function fmtCell(kind, v) {
+  if (v === null || v === undefined) return '-';
+  if (kind === 'eok') return (v / 1e8).toLocaleString('ko-KR', {maximumFractionDigits:0}) + '억원';
+  return v.toFixed(2) + '%';
+}
+function sortTable(sector, key) {
+  var st = SORT_STATE[sector];
+  if (st.key === key) st.dir = -st.dir; else { st.key = key; st.dir = key === 'company' ? 1 : -1; }
+  renderTable(sector);
+}
+function renderTable(sector) {
+  var data = SECTOR_DATA[sector];
+  var rows = data.tableRows.slice();
+  var st = SORT_STATE[sector];
+  rows.sort(function(a, b){
+    var av = st.key === 'company' ? a.company : a[st.key];
+    var bv = st.key === 'company' ? b.company : b[st.key];
+    if (av === null || av === undefined) return 1;
+    if (bv === null || bv === undefined) return -1;
+    if (av < bv) return -1 * st.dir;
+    if (av > bv) return 1 * st.dir;
+    return 0;
+  });
+  var tbody = document.getElementById('tbody-' + sector);
+  tbody.innerHTML = rows.map(function(r, i){
+    var cells = '<td>' + (i + 1) + '</td><td>' + r.company + '</td>';
+    TABLE_COLS.forEach(function(key){ cells += '<td>' + fmtCell(TABLE_FMT[key], r[key]) + '</td>'; });
+    return '<tr>' + cells + '</tr>';
+  }).join('');
+  ['company'].concat(TABLE_COLS).forEach(function(key){
+    var arrow = document.getElementById('arrow-' + sector + '-' + key);
+    if (arrow) arrow.textContent = (st.key === key) ? (st.dir === 1 ? '▲' : '▼') : '';
+  });
 }
 
 document.addEventListener('DOMContentLoaded', function() {

@@ -41,3 +41,24 @@ def latest_snapshot(kpi: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows).sort_values("당기순이익", ascending=False)
+
+
+SNAPSHOT_FULL_METRICS = [
+    "영업수익", "영업이익", "영업이익률", "영업이익_전년대비증감률",
+    "당기순이익", "당기순이익률", "당기순이익_전년대비증감률", "ROA", "ROE",
+]
+
+
+def latest_snapshot_full(kpi: pd.DataFrame) -> pd.DataFrame:
+    """latest_snapshot보다 넓은 지표 세트(영업수익/영업이익 등 포함) 버전."""
+    rows = []
+    for company, g in kpi.groupby("금융회사명"):
+        g = g.sort_values("년월")
+        row = {"금융회사명": company}
+        ni_row = g.dropna(subset=["당기순이익"]).tail(1)
+        row["기준분기"] = ni_row["년월"].iloc[0] if len(ni_row) else pd.NA
+        for metric in SNAPSHOT_FULL_METRICS:
+            m_row = g.dropna(subset=[metric]).tail(1)
+            row[metric] = m_row[metric].iloc[0] if len(m_row) else pd.NA
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("당기순이익", ascending=False).reset_index(drop=True)
