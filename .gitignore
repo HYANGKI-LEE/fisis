@@ -16,3 +16,6 @@ output/**/merged_df/
 
 # 자동 업데이트 로그 (로컬 전용)
 scheduler/run_daily.log
+
+# 로컬 가상환경 (작업 스케줄러 전용, 로밍 프로필 접근 문제 우회용)
+.venv/

@@ -4,6 +4,11 @@ scheduler/auto_update.py를 돌려서 새 분기 데이터가 있으면 받아�
 output/**/final_df (및 보험사/캐피탈사)에 실제 변경이 생겼으면 git commit/push까지
 자동으로 처리한다. 모든 출력은 scheduler/run_daily.log에 누적 기록됨
 (백그라운드로 도는 작업이라 콘솔을 볼 사람이 없음).
+
+반드시 fisis/.venv/Scripts/python.exe로 실행할 것 (작업 스케줄러 등록 시 이걸로
+지정돼 있음) - 시스템 python의 유저 site-packages(AppData\\Roaming)는 작업
+스케줄러의 백그라운드 실행 컨텍스트에서 접근이 안 돼서 requests 등을 못 찾고
+바로 죽는 문제가 있었음. .venv는 로밍 프로필과 무관한 로컬 폴더라 문제없음.
 """
 import datetime
 import os
@@ -26,20 +31,8 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
-# Windows 작업 스케줄러로 실행하면 (Interactive 로그온인데도) 유저 site-packages
-# 경로가 제대로 안 잡혀서 requests/pandas 등을 못 찾고 바로 죽는 경우가 있었음.
-# site.getusersitepackages()로 동적으로 계산해도 같은(깨진) 환경에서 계산되는
-# 거라 똑같이 틀어질 수 있어서, 실제 설치 경로를 하드코딩 - 다른 PC로 옮기면
-# `python -c "import site; print(site.getusersitepackages())"`로 다시 확인할 것
-_USER_SITE = r"C:\Users\infomax\AppData\Roaming\Python\Python314\site-packages"
-if not os.path.isdir(_USER_SITE):
-    _USER_SITE = ""
-
-
 def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", **kwargs.pop("env", {})}
-    if _USER_SITE:
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, [_USER_SITE, env.get("PYTHONPATH", "")]))
     return subprocess.run(
         args, cwd=REPO_ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", env=env, **kwargs
@@ -48,6 +41,7 @@ def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 def main() -> int:
     log("=== 일일 자동 업데이트 시작 ===")
+    log(f"[진단] sys.executable={sys.executable}")
 
     # 시작 전에 output/ 아래가 깨끗한지부터 확인 - 수동 테스트하다 남긴 파일 등
     # 이 스크립트와 무관한 변경사항이 있으면, 그걸 "새로 받은 데이터"로 착각해서
