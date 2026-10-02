@@ -4,10 +4,13 @@ TradingCheckboard(../TradingCheckboard/scripts/generate_static_site.py)와 같�
 방식: 업권별 "페이지"를 사이드바로 전환하고, Plotly 차트는 JSON으로 그대로
 내장해서 브라우저에서 바로 렌더링한다(서버 없이 정적 파일만으로 동작).
 
-라이브 앱(Streamlit)과의 차이: 회사 선택 드롭다운은 당기순이익 1위 회사만
-기본으로 보여준다 - 업권마다 회사가 수십~백여 개라 전부 차트로 구워 넣으면
-파일이 너무 커짐. 다른 회사를 보고 싶으면 라이브 앱 링크를 안내한다.
+상호저축은행은 FISIS 원본 사이트의 통계 분류 체계를 따라 하위탭 12개(주요지표 +
+11개 준비중)로 먼저 구성한다 - 다른 업권은 아직 기존 단일 레이아웃 그대로.
+주요지표 탭은 회사 비교 막대그래프(분기 드롭다운) + 당기순이익/ROA/ROE 추이
+(검색 가능한 회사 드롭다운) + 표 순으로 배치하고, 전 회사 시계열 데이터를
+JSON으로 통째로 내장해서 서버 없이 클라이언트에서 바로 전환되게 한다.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -21,14 +24,24 @@ from dashboard.loader import SECTOR_FOLDERS, load_sector_long  # noqa: E402
 from dashboard.kpis import build_kpi_table  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot  # noqa: E402
 
-LIVE_APP_URL = "https://fisis-dashboard.streamlit.app"
+
+# FISIS 원본 사이트의 저축은행 통계 분류 체계를 따름 (주요지표는 우리가 만든 요약 탭).
+# 내용은 아직 와꾸만 - 자산건전성 이후 11개는 준비중 placeholder.
+SAVINGS_BANK_TABS = [
+    "주요 지표", "수익성", "자산건전성", "여신건전성", "유동성",
+    "자산 현황", "부채 현황", "부문별 손익 현황", "대출금 운용",
+    "자본적정성", "대차대조표", "손익계산서",
+]
 
 _chart_counter = [0]
 
 
-def chart_div(fig) -> str:
-    _chart_counter[0] += 1
-    div_id = f"chart{_chart_counter[0]}"
+def chart_div(fig, div_id: str | None = None) -> str:
+    """div_id를 직접 지정하면(JS에서 Plotly.react로 나중에 갱신할 차트) 그 id를 쓰고,
+    아니면 자동 생성한다."""
+    if div_id is None:
+        _chart_counter[0] += 1
+        div_id = f"chart{_chart_counter[0]}"
     payload = fig.to_json()
     return (f'<div id="{div_id}" class="plotly-chart"></div>'
             f'<script type="application/json" id="{div_id}-data">{payload}</script>'
@@ -50,6 +63,25 @@ def df_to_html(d: pd.DataFrame) -> str:
     return "".join(html)
 
 
+_tab_counter = [0]
+
+
+def tabs_html(labels: list[str], bodies: list[str]) -> str:
+    _tab_counter[0] += 1
+    gid = f"tabgroup{_tab_counter[0]}"
+    btns = "".join(
+        f'<button class="tab-btn{" active" if i == 0 else ""}" '
+        f'onclick="showTab(\'{gid}\',{i})">{lbl}</button>'
+        for i, lbl in enumerate(labels)
+    )
+    panels = "".join(
+        f'<div class="tab-panel{" active" if i == 0 else ""}" id="{gid}-{i}">{body}</div>'
+        for i, body in enumerate(bodies)
+    )
+    return f'<div class="tabgroup" data-group="{gid}"><div class="tab-bar">{btns}</div>{panels}</div>'
+
+
+# ================================================================ 기존 단일 레이아웃 (저축은행 외 9개 업권)
 def render_sector(sector: str) -> str:
     long_df = load_sector_long(sector)
     kpi = build_kpi_table(long_df)
@@ -84,8 +116,7 @@ def render_sector(sector: str) -> str:
         fig2.update_layout(height=380, margin=dict(t=50))
         chart2_html = chart_div(fig2)
 
-    note = (f'<p class="caption">회사별 최신 실적(당기순이익 1위 기준 추이 차트)만 보여줘요. '
-            f'다른 회사를 선택해서 보려면 <a href="{LIVE_APP_URL}" target="_blank">라이브 앱</a>을 이용하세요.</p>')
+    note = '<p class="caption">회사별 최신 실적(당기순이익 1위 기준 추이 차트)만 보여줘요 - 이 업권은 아직 회사 선택 기능 적용 전이에요.</p>'
 
     return (
         f'<h4>회사별 최신 실적</h4>{table_html}'
@@ -95,6 +126,92 @@ def render_sector(sector: str) -> str:
         f'<div class="cell">{chart2_html}</div>'
         f'</div>'
     )
+
+
+# ================================================================ 저축은행: 탭 12개 레이아웃
+def build_sector_js_data(kpi: pd.DataFrame, snap: pd.DataFrame) -> dict:
+    """회사 x 분기 전체 시계열을 JSON 구조로 변환 - 서버 없이 드롭다운으로
+    회사/분기를 바꿔도 클라이언트에서 바로 차트를 다시 그릴 수 있게."""
+    quarters = sorted(kpi["년월"].dropna().unique().tolist())
+    quarter_labels = [format_ym(q) for q in quarters]
+    companies = snap["금융회사명"].tolist()  # 이미 당기순이익 내림차순 정렬됨
+
+    series = {}
+    for company in companies:
+        g = (kpi[kpi["금융회사명"] == company]
+             .drop_duplicates(subset="년월")
+             .set_index("년월")
+             .reindex(quarters))
+        series[company] = {
+            metric: [None if pd.isna(v) else float(v) for v in g[metric]]
+            for metric in ("당기순이익", "ROA", "ROE")
+        }
+
+    return {"quarters": quarter_labels, "companies": companies, "series": series}
+
+
+def render_main_tab_rich(sector_key: str, kpi: pd.DataFrame, snap: pd.DataFrame) -> str:
+    display = snap.copy()
+    display["기준분기"] = display["기준분기"].map(format_ym)
+    display["당기순이익"] = display["당기순이익"].map(format_eok)
+    display["전기대비증감률"] = display["전기대비증감률"].map(format_pct)
+    display["ROA"] = display["ROA"].map(format_pct)
+    display["ROE"] = display["ROE"].map(format_pct)
+    table_html = df_to_html(display)
+
+    js_data = build_sector_js_data(kpi, snap)
+    data_script = (f'<script type="application/json" id="data-{sector_key}">'
+                    f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
+
+    quarter_options = "".join(
+        f'<option value="{q}"{" selected" if i == len(js_data["quarters"]) - 1 else ""}>{q}</option>'
+        for i, q in enumerate(js_data["quarters"])
+    )
+    company_options = "".join(f"<option value=\"{c}\">" for c in js_data["companies"])
+    default_company = js_data["companies"][0] if js_data["companies"] else ""
+
+    bar_section = (
+        '<h4>회사별 실적 비교</h4>'
+        '<div class="control-row"><label>기준 분기 '
+        f'<select id="quarterSelect-{sector_key}" onchange="onQuarterChange(\'{sector_key}\')">'
+        f'{quarter_options}</select></label></div>'
+        f'<div id="barChart-{sector_key}" class="plotly-chart"></div>'
+    )
+
+    trend_section = (
+        '<h4>회사별 추이</h4>'
+        '<div class="control-row"><label>회사 선택(검색 가능) '
+        f'<input type="text" id="companySelect-{sector_key}" list="companyList-{sector_key}" '
+        f'value="{default_company}" oninput="onCompanyChange(\'{sector_key}\')"></label>'
+        f'<datalist id="companyList-{sector_key}">{company_options}</datalist></div>'
+        f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        f'<div class="cell"><div id="trendNI-{sector_key}" class="plotly-chart"></div></div>'
+        f'<div class="cell"><div id="trendRoaRoe-{sector_key}" class="plotly-chart"></div></div>'
+        f'</div>'
+    )
+
+    return (
+        data_script + bar_section + trend_section +
+        f'<h4>회사별 최신 실적</h4>{table_html}'
+        f'<script>initSectorMain("{sector_key}");</script>'
+    )
+
+
+def render_placeholder_tab(label: str) -> str:
+    return f'<p class="caption">"{label}" 탭은 준비 중이에요. 곧 채워질 예정입니다.</p>'
+
+
+def render_savings_bank_page(sector_key: str, sector: str) -> str:
+    long_df = load_sector_long(sector)
+    kpi = build_kpi_table(long_df)
+    if kpi.empty or kpi["당기순이익"].dropna().empty:
+        main_content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+    else:
+        snap = latest_snapshot(kpi)
+        main_content = render_main_tab_rich(sector_key, kpi, snap)
+
+    bodies = [main_content] + [render_placeholder_tab(lbl) for lbl in SAVINGS_BANK_TABS[1:]]
+    return tabs_html(SAVINGS_BANK_TABS, bodies)
 
 
 CSS = """
@@ -124,6 +241,19 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; }
 .data-table th:first-child, .data-table td:first-child { text-align:left; }
 .data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; }
+.tabgroup { margin-top:8px; }
+.tab-bar { display:flex; gap:4px; border-bottom:2px solid var(--border); margin-bottom:16px;
+           overflow-x:auto; flex-wrap:nowrap; }
+.tab-btn { border:none; background:none; padding:10px 14px; font-size:14px; cursor:pointer; color:var(--muted);
+           border-bottom:2px solid transparent; margin-bottom:-2px; white-space:nowrap; }
+.tab-btn:hover { color:var(--text); }
+.tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+.control-row { margin:10px 0 16px; font-size:14px; }
+.control-row label { display:flex; align-items:center; gap:8px; }
+.control-row select, .control-row input { border:1px solid var(--border); border-radius:6px; padding:6px 10px;
+                                           font-size:14px; min-width:220px; }
 @media (max-width: 900px) {
   #sidebar { position:fixed; left:-240px; transition:left .2s; z-index:20; box-shadow:2px 0 8px rgba(0,0,0,.1); }
   #sidebar.open { left:0; }
@@ -146,12 +276,68 @@ function showPage(id) {
   document.getElementById('nav-' + id).classList.add('active');
   window.scrollTo(0, 0);
   history.replaceState(null, '', '#' + id);
-  setTimeout(function(){ resizeCharts(page); }, 0);
+  setTimeout(function(){ resizeCharts(page.querySelector('.tab-panel.active') || page); }, 0);
+}
+function showTab(groupId, idx) {
+  var group = document.querySelector('[data-group="' + groupId + '"]');
+  var btns = group.querySelectorAll('.tab-btn');
+  var panels = group.querySelectorAll('.tab-panel');
+  btns.forEach(function(b, i){ b.classList.toggle('active', i === idx); });
+  panels.forEach(function(p, i){ p.classList.toggle('active', i === idx); });
+  setTimeout(function(){ resizeCharts(panels[idx]); }, 0);
 }
 function renderChart(id) {
   var payload = JSON.parse(document.getElementById(id + '-data').textContent);
   Plotly.newPlot(id, payload.data, payload.layout, {displaylogo:false, responsive:true});
 }
+
+var SECTOR_DATA = {};
+function initSectorMain(sector) {
+  var el = document.getElementById('data-' + sector);
+  if (!el) return;
+  SECTOR_DATA[sector] = JSON.parse(el.textContent);
+  renderBarChart(sector);
+  renderTrendCharts(sector);
+}
+function onQuarterChange(sector) { renderBarChart(sector); }
+function onCompanyChange(sector) { renderTrendCharts(sector); }
+
+function renderBarChart(sector) {
+  var data = SECTOR_DATA[sector];
+  if (!data) return;
+  var q = document.getElementById('quarterSelect-' + sector).value;
+  var qIdx = data.quarters.indexOf(q);
+  var pairs = data.companies
+    .map(function(c){ return [c, data.series[c]['당기순이익'][qIdx]]; })
+    .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
+  pairs.sort(function(a, b){ return b[1] - a[1]; });
+  var x = pairs.map(function(p){ return p[0]; });
+  var y = pairs.map(function(p){ return p[1]; });
+  Plotly.react('barChart-' + sector, [{x:x, y:y, type:'bar', marker:{color:'#2980B9'}}], {
+    height:420, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:'당기순이익(원)'}
+  }, {displaylogo:false, responsive:true});
+}
+
+function renderTrendCharts(sector) {
+  var data = SECTOR_DATA[sector];
+  if (!data) return;
+  var company = document.getElementById('companySelect-' + sector).value;
+  if (data.companies.indexOf(company) === -1) return;
+  var s = data.series[company];
+  Plotly.react('trendNI-' + sector, [{x:data.quarters, y:s['당기순이익'], type:'bar', marker:{color:'#2980B9'}}], {
+    height:360, margin:{t:40}, title:company + ' 당기순이익 추이', yaxis:{title:'당기순이익(원)'}
+  }, {displaylogo:false, responsive:true});
+
+  var traces = [];
+  if (s['ROA'].some(function(v){ return v !== null; }))
+    traces.push({x:data.quarters, y:s['ROA'], mode:'lines+markers', name:'ROA'});
+  if (s['ROE'].some(function(v){ return v !== null; }))
+    traces.push({x:data.quarters, y:s['ROE'], mode:'lines+markers', name:'ROE'});
+  Plotly.react('trendRoaRoe-' + sector, traces, {
+    height:360, margin:{t:40}, title:company + ' ROA / ROE 추이', yaxis:{title:'%'}
+  }, {displaylogo:false, responsive:true});
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   var hash = location.hash.replace('#', '');
   var valid = document.getElementById('page-' + hash);
@@ -173,11 +359,9 @@ def build() -> str:
     page_divs = []
     for s in sectors:
         print(f"  - {s} 생성 중...", flush=True)
-        content = render_sector(s)
-        page_divs.append(
-            f'<div class="page" id="page-{page_keys[s]}">'
-            f'<h1>{s}</h1>{content}</div>'
-        )
+        key = page_keys[s]
+        content = render_savings_bank_page(key, s) if s == "상호저축은행" else render_sector(s)
+        page_divs.append(f'<div class="page" id="page-{key}"><h1>{s}</h1>{content}</div>')
 
     generated_at = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
     js = f'var DEFAULT_PAGE = "{page_keys[sectors[0]]}";\n' + JS
@@ -199,8 +383,7 @@ def build() -> str:
     {nav_links}
   </nav>
   <main id="main">
-    <div id="top-note">최종 갱신: {generated_at} (매일 자동 갱신) ·
-      <a href="{LIVE_APP_URL}" target="_blank">라이브 앱(회사 선택 가능)</a>으로도 볼 수 있어요.</div>
+    <div id="top-note">최종 갱신: {generated_at} (매일 자동 갱신)</div>
     {''.join(page_divs)}
   </main>
 </div>
