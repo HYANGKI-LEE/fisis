@@ -26,8 +26,20 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
+# Windows 작업 스케줄러로 실행하면 (Interactive 로그온인데도) 유저 site-packages
+# 경로(site.getusersitepackages())가 제대로 안 잡혀서 requests/pandas 등을 못 찾고
+# 바로 죽는 경우가 있었음 - PYTHONPATH로 명시해서 환경에 상관없이 항상 찾게 함
+try:
+    import site
+    _USER_SITE = site.getusersitepackages()
+except Exception:  # noqa: BLE001
+    _USER_SITE = ""
+
+
 def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", **kwargs.pop("env", {})}
+    if _USER_SITE:
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [_USER_SITE, env.get("PYTHONPATH", "")]))
     return subprocess.run(
         args, cwd=REPO_ROOT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", env=env, **kwargs
