@@ -28,6 +28,7 @@ sys.path.insert(0, str(REPO_DIR))
 
 from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path, load_sector_long  # noqa: E402
 from dashboard.kpis import build_kpi_table, build_credit_rating_table  # noqa: E402
+import kis_charts  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
@@ -850,6 +851,13 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
         for lbl in SAVINGS_BANK_TABS[2:]
     ]
     bodies = [cr_content, perf_content] + rest
+
+    # 저축은행 Data Package(SBI 탭 기준) 항목 차트: 서브탭 하단에 붙임
+    rated = load_rated_companies(company_order)
+    kis_payload = kis_charts.build_kis_payload(sector, rated)
+    if kis_payload:
+        bodies = [b + kis_charts.render_kis_block(lbl) for b, lbl in zip(bodies, SAVINGS_BANK_TABS)]
+        return tabs_html(SAVINGS_BANK_TABS, bodies) + kis_charts.render_kis_data_script(kis_payload)
     return tabs_html(SAVINGS_BANK_TABS, bodies)
 
 
@@ -881,6 +889,8 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; white-space:nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align:left; }
 .data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
+.kis-title { font-size:14px; font-weight:600; margin:10px 0 0; }
+.kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }
 .is-table td:first-child { text-align:left; }
 .is-table tr.is-head td { font-weight:700; background:#f7f8fa; }
 .is-toggle { cursor:pointer; color:var(--accent); font-size:11px; display:inline-block; width:14px; }
@@ -933,7 +943,7 @@ function showPage(id) {
   document.getElementById('nav-' + id).classList.add('active');
   window.scrollTo(0, 0);
   history.replaceState(null, '', '#' + id);
-  setTimeout(function(){ resizeCharts(page.querySelector('.tab-panel.active') || page); }, 0);
+  setTimeout(function(){ resizeCharts(page.querySelector('.tab-panel.active') || page); if (window.kisRenderVisible) kisRenderVisible(); }, 0);
 }
 function showTab(groupId, idx) {
   var group = document.querySelector('[data-group="' + groupId + '"]');
@@ -941,7 +951,7 @@ function showTab(groupId, idx) {
   var panels = group.querySelectorAll('.tab-panel');
   btns.forEach(function(b, i){ b.classList.toggle('active', i === idx); });
   panels.forEach(function(p, i){ p.classList.toggle('active', i === idx); });
-  setTimeout(function(){ resizeCharts(panels[idx]); }, 0);
+  setTimeout(function(){ resizeCharts(panels[idx]); if (window.kisRenderVisible) kisRenderVisible(); }, 0);
 }
 function renderChart(id) {
   var payload = JSON.parse(document.getElementById(id + '-data').textContent);
@@ -1546,7 +1556,8 @@ def build() -> str:
 
     generated_at = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
     cr_metrics_js = json.dumps(CR_METRICS, ensure_ascii=False)
-    js = f'var DEFAULT_PAGE = "{page_keys[sectors[0]]}";\nvar CR_METRICS_JS = {cr_metrics_js};\n' + JS
+    kis_js = (Path(__file__).resolve().parent / "kis_charts.js").read_text(encoding="utf-8")
+    js = f'var DEFAULT_PAGE = "{page_keys[sectors[0]]}";\nvar CR_METRICS_JS = {cr_metrics_js};\n' + JS + kis_js
 
     return f"""<!doctype html>
 <html lang="ko">
