@@ -80,6 +80,29 @@ def _next_quarter(yyyymm) -> int:
     return y * 100 + m
 
 
+def _add_flow_ratios(out: pd.DataFrame) -> pd.DataFrame:
+    """분기 흐름 항목(영업이익, 대손상각비, 당기순이익)과 분기말 자산총계로 연율화/4분기누적 비율 계산.
+    회사별로 분기 달력을 빈틈없이 만든 뒤(누락 분기는 NaN) shift/rolling을 적용한다."""
+    frames = []
+    for company, g in out.groupby("금융회사명"):
+        g = g.drop_duplicates(subset="년월").set_index("년월").sort_index()
+        quarters, q = [], g.index.min()
+        while q <= g.index.max():
+            quarters.append(q)
+            q = _next_quarter(q)
+        g = g.reindex(quarters)
+        g["금융회사명"] = company
+        pre_provision = g["영업이익"] + g["대손상각비"]
+        avg2 = (g["자산총계"] + g["자산총계"].shift(1)) / 2
+        avg5 = g["자산총계"].rolling(5, min_periods=5).mean()
+        g["충당금적립전영업이익률"] = pre_provision * 4 / avg2 * 100
+        g["ROA"] = g["당기순이익"] * 4 / avg2 * 100
+        g["충당금적립전영업이익률(4분기누적)"] = pre_provision.rolling(4, min_periods=4).sum() / avg5 * 100
+        g["ROA(4분기누적)"] = g["당기순이익"].rolling(4, min_periods=4).sum() / avg5 * 100
+        frames.append(g.rename_axis("년월").reset_index())
+    return pd.concat(frames, ignore_index=True)
+
+
 def build_credit_rating_table(long_df: pd.DataFrame) -> pd.DataFrame:
     """신평사 평가요소표(사업위험/재무위험) 기준 핵심 지표 테이블.
 
@@ -121,7 +144,13 @@ def build_credit_rating_table(long_df: pd.DataFrame) -> pd.DataFrame:
     out["대출이자수익률"] = out["대출이자수익"] * 4 / avg_loans * 100
     out = out.drop(columns=["전분기말대출채권"])
 
-    out["충당금적립전영업이익률"] = (out["영업이익"] + out["대손상각비"]) / out["총자산평잔"] * 100
+    # FISIS 수익성 통계의 총자산(평잔)/ROA는 연 1회(4분기)만 공시돼서 다른 분기는 비어 있음.
+    # -> 분기 항목으로 직접 계산:
+    #   · 충당금적립전영업이익률, ROA : 당분기 금액 x 4 (연율화) / 총자산 분기 평잔((당분기말+전분기말)/2)
+    #   · (4분기누적) 버전 : 최근 4개 분기 합계 / 총자산 평잔(기초~당분기말 5개 분기말 평균)
+    net_income = extract_net_income(long_df)
+    out = out.merge(net_income, on=["금융회사명", "년월"], how="outer")
+    out = _add_flow_ratios(out)
 
     industry_total = out.groupby("년월")["자산총계"].transform("sum")
     out["총자산시장점유율"] = out["자산총계"] / industry_total * 100

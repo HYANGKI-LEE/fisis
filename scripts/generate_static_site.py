@@ -273,13 +273,15 @@ CR_METRICS = [
 CR_NOTE = (
     '<p class="caption">신평사 저축은행 평가요소표(사업위험/재무위험) 기준 핵심 지표예요. '
     '정성평가 항목(경영관리능력, 대출포트폴리오 구성, 자본관리능력, 재무적 융통성)은 수치화가 안 돼서 제외했어요. '
-    '충당금적립전영업이익률은 FISIS에서 연 1회(4분기)만 공시돼서 다른 분기는 비어있어요.</p>'
+    'FISIS가 연 1회(4분기)만 공시하는 ROA·충당금적립전영업이익률은 분기 금액으로 직접 계산(연율화)했어요.</p>'
 )
 
 # 회사별 지표 비교 드롭다운에만 추가되는 지표(추이 차트는 만들지 않음)
-CR_BAR_ONLY_METRICS = ["대출이자수익률"]
+CR_BAR_ONLY_METRICS = ["대출이자수익률", "충당금적립전영업이익률(4분기누적)", "ROA(4분기누적)"]
 CR_BAR_NOTE = ("대출이자수익률 = 연환산(×4) 당분기 대출금 이자수익 ÷ 대출채권 분기 평잔"
-               "((당분기말 + 직전 분기말) / 2).")
+               "((당분기말 + 직전 분기말) / 2). "
+               "ROA·충당금적립전영업이익률은 분기마다 연율화(당분기 금액 ×4 ÷ 총자산 분기 평잔)해서 계산하고, "
+               "(4분기누적) 지표는 최근 4개 분기 합계 ÷ 총자산 평잔(기초~당분기말 5개 분기말 평균)이에요.")
 
 RANGE_PRESETS = ["1Y", "3Y", "5Y", "10Y", "전체", "설정"]
 
@@ -429,7 +431,7 @@ def render_scatter_section(sector: str) -> str:
 def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str]) -> str:
     long_df = load_sector_long(sector)
     cr = build_credit_rating_table(long_df)
-    cr_full = cr.merge(kpi[["금융회사명", "년월", "ROA"]], on=["금융회사명", "년월"], how="outer")
+    cr_full = cr  # ROA도 build_credit_rating_table에서 분기 연율화로 계산
 
     if cr_full.empty:
         return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
@@ -1002,7 +1004,7 @@ function renderCrBarChart(sector) {
     x:pairs.map(function(p){ return p[0]; }), y:pairs.map(function(p){ return p[1]; }),
     type:'bar', marker:{color:'#2980B9'}
   }], {
-    height:440, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:metric + '(%)'}
+    height:440, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:metric + ' (%)'}
   }, {displaylogo:false, responsive:true});
 }
 
@@ -1106,7 +1108,7 @@ function renderCrTrend(sector, i, metric) {
     {x:quarters, y:companyVals, mode:'lines+markers', connectgaps:true, name:shortName(sector, company),
      line:{color:'#2980B9', width:2.5}}
   ], {
-    height:320, margin:{t:20}, yaxis:{title:metric + '(%)'}, legend:{orientation:'h', y:-0.2}
+    height:320, margin:{t:20}, yaxis:{title:metric + ' (%)'}, legend:{orientation:'h', y:-0.2}
   }, {displaylogo:false, responsive:true});
 }
 
