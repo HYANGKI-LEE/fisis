@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
@@ -727,6 +728,87 @@ def render_statement_tab(sector_key: str, sector: str, kind: str) -> str:
     return payload + controls + body + f'<script>initIsSector("{sector_key}");</script>'
 
 
+# ================================================================ 수익성 탭: ROA vs 기준금리
+INFOMAX_XLSX = REPO_DIR / "output" / "Infomax_데이터.xlsx"
+
+
+def load_base_rate_quarterly() -> pd.Series:
+    """인포맥스 엑셀(월별)에서 '한국:기준금리'를 분기말(3/6/9/12월) 값으로 뽑아 {'2026.Q3': 3.0} 형태로 반환.
+    엑셀 구조: 2행(인덱스1)=지표명, 4행부터 데이터, 첫 열=일자."""
+    if not INFOMAX_XLSX.exists():
+        return pd.Series(dtype=float)
+    raw = pd.read_excel(INFOMAX_XLSX, header=None)
+    names = raw.iloc[1].tolist()
+    col = next((i for i, n in enumerate(names) if str(n).strip() == "한국:기준금리"), None)
+    if col is None:
+        return pd.Series(dtype=float)
+    if col == 0:   # 첫 지표는 헤더 이름이 일자 열(0열)에, 단위("단위: %")가 데이터 열(1열) 머리에 들어 있음
+        col = 1
+    d = raw.iloc[3:, [0, col]].copy()
+    d.columns = ["일자", "금리"]
+    d["일자"] = pd.to_datetime(d["일자"], errors="coerce")
+    d["금리"] = pd.to_numeric(d["금리"], errors="coerce")
+    d = d.dropna(subset=["일자", "금리"])
+    d["ym"] = d["일자"].dt.year * 100 + d["일자"].dt.month
+    d = d[d["일자"].dt.month.isin([3, 6, 9, 12])].drop_duplicates(subset="ym", keep="last")
+    # 월 중간(예: 10월 6일) 같은 부분월 행은 분기말이 아니라 위 필터에서 자연히 제외됨
+    d = d[d["일자"] == d["일자"] + pd.offsets.MonthEnd(0)]
+    return pd.Series(d["금리"].to_numpy(), index=[format_ym(int(v)) for v in d["ym"]])
+
+
+def industry_roa_series(long_df: pd.DataFrame) -> pd.DataFrame:
+    """업권 전체 ROA(%) - 분기 연율화(당기순이익 x4 / 총자산 분기 평잔)와 4분기누적. 회사별로 값을 구한 뒤
+    분자/분모를 각각 합산 (직전 분기 자산이 없는 회사는 그 분기 합산에서 제외)."""
+    cr = build_credit_rating_table(long_df)
+    frames = []
+    for _, g in cr.groupby("금융회사명"):
+        g = g.sort_values("년월").reset_index(drop=True)
+        avg2 = (g["자산총계"] + g["자산총계"].shift(1)) / 2
+        avg5 = g["자산총계"].rolling(5, min_periods=5).mean()
+        ni4 = g["당기순이익"].rolling(4, min_periods=4).sum()
+        frames.append(pd.DataFrame({
+            "년월": g["년월"], "ni": g["당기순이익"], "avg2": avg2, "ni4": ni4, "avg5": avg5}))
+    f = pd.concat(frames, ignore_index=True)
+    q = f.dropna(subset=["ni", "avg2"]).groupby("년월")[["ni", "avg2"]].sum()
+    y = f.dropna(subset=["ni4", "avg5"]).groupby("년월")[["ni4", "avg5"]].sum()
+    out = pd.DataFrame({"ROA": q["ni"] * 4 / q["avg2"] * 100, "ROA4": y["ni4"] / y["avg5"] * 100})
+    return out.sort_index()
+
+
+def render_profitability_tab(long_df: pd.DataFrame) -> str:
+    rate = load_base_rate_quarterly()
+    roa = industry_roa_series(long_df)
+    if rate.empty or roa.empty:
+        return '<p class="caption">기준금리 또는 ROA 데이터가 없어요.</p>'
+    roa.index = [format_ym(int(v)) for v in roa.index]
+    labels = list(rate.index)                    # 기준금리가 있는 분기(2018.Q3~)만 표시
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Scatter(
+        x=labels, y=[roa["ROA"].get(q) for q in labels], mode="lines+markers", name="ROA(연율화)",
+        line=dict(color="#2980B9", width=2.5), connectgaps=True,
+        hovertemplate="%{x}<br>ROA %{y:.2f}%<extra></extra>"), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        x=labels, y=[roa["ROA4"].get(q) for q in labels], mode="lines+markers", name="ROA(4분기누적)",
+        line=dict(color="#85C1E9", width=2, dash="dot"), connectgaps=True, visible="legendonly",
+        hovertemplate="%{x}<br>ROA(4분기누적) %{y:.2f}%<extra></extra>"), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        x=labels, y=rate.tolist(), mode="lines+markers", name="기준금리(우축)", line=dict(color="#E67E73", width=2.5, shape="hv"),
+        hovertemplate="%{x}<br>기준금리 %{y:.2f}%<extra></extra>"), secondary_y=True)
+    fig.update_yaxes(title_text="ROA (%)", zeroline=True, zerolinecolor="#999", secondary_y=False)
+    fig.update_yaxes(title_text="기준금리 (%)", showgrid=False, secondary_y=True)
+    fig.update_xaxes(type="category", tickangle=-45)
+    fig.update_layout(height=440, margin=dict(t=30, b=80), legend=dict(orientation="h", y=-0.28))
+    note = ('<p class="caption">저축은행 업권 전체 ROA = 회사별 당기순이익(당분기) ×4 ÷ 총자산 분기 평잔을 업권 합산한 값이에요 '
+            '(4분기누적은 범례를 눌러 켜세요). 기준금리는 인포맥스 데이터의 분기말 값이에요.</p>')
+    return (
+        '<h4>ROA와 기준금리</h4>' + note +
+        '<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        f'<div class="cell">{chart_div(fig)}</div>'
+        '<div class="cell"></div>'
+        '</div>'
+    )
+
+
 def render_placeholder_tab(label: str) -> str:
     return f'<p class="caption">"{label}" 탭은 준비 중이에요. 곧 채워질 예정입니다.</p>'
 
@@ -747,7 +829,9 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     stmt_kind = {"손익계산서": ("is", "is"), "대차대조표": ("bs", "bs")}
     rest = [
         render_statement_tab(f"{sector_key}-{stmt_kind[lbl][0]}", sector, stmt_kind[lbl][1])
-        if lbl in stmt_kind else render_placeholder_tab(lbl)
+        if lbl in stmt_kind
+        else render_profitability_tab(long_df) if lbl == "수익성"
+        else render_placeholder_tab(lbl)
         for lbl in SAVINGS_BANK_TABS[2:]
     ]
     bodies = [cr_content, perf_content] + rest
