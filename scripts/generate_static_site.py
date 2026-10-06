@@ -304,18 +304,18 @@ SCATTER_FOOTNOTE = (
     "대손비용률 = (대손상각비 + 대출채권관련손실 - 대출채권관련수익) ÷ 총자산 평잔. "
     "연환산은 해당 연도 누계(1분기~기준 분기)를 4/분기수로 환산, 총자산 평잔은 전년말~기준 분기말 분기말 자산총계의 평균. "
     "대출금리 수준은 대출이자수익률(연환산 당분기 대출금이자수익 ÷ 대출채권 분기 평잔). "
-    "NICE신용평가 유효등급 보유 회사만 표시. 자료: FISIS."
+    "대손 차감 후 경상이익률 = 경상이익률 - 대손비용률. 신평사(한신평·NICE·한기평) 유효등급 보유 회사만 표시. 자료: FISIS."
 )
 
 
 def build_scatter_points(sector: str) -> tuple[pd.DataFrame, str]:
-    """NICE 유효등급 보유사별 (대출금리, 경상이익률, 대손비용률) - 최신 분기 기준. (df, 기준분기 라벨) 반환."""
+    """신평사 유효등급 보유사별 (대출금리, 경상이익률, 대손비용률) - 최신 분기 기준. (df, 기준분기 라벨) 반환."""
     is_d = build_statement_data(sector, "is")
     bs_d = build_statement_data(sector, "bs")
     if is_d is None or bs_d is None or not RATED_CSV.exists():
         return pd.DataFrame(), ""
     r = pd.read_csv(RATED_CSV, encoding="cp949").fillna("")
-    names = r.loc[r["NICE"] == "O", "금융회사명"].tolist()
+    names = r.loc[r["신평사유효등급보유"] == "O", "금융회사명"].tolist()
 
     qlabels = is_d["quarters"]
     iq = len(qlabels) - 1
@@ -395,13 +395,35 @@ def render_scatter_section(sector: str) -> str:
         xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
         yaxis=dict(title="총자산 대비(%)", showgrid=False, zeroline=True, zerolinecolor="#999", linecolor="#999"),
         legend=dict(x=0.8, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
+    # 2열: 오른쪽은 대손 차감 후 경상이익률(= 경상이익률 - 대손비용률)
+    net = df["경상이익률"] - df["대손비용률"]
+    slope, icpt = np.polyfit(x, net.to_numpy(), 1)
+    r2_net = float(np.corrcoef(x, net)[0, 1] ** 2)
+    fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(
+        x=df["대출금리"], y=net, mode="markers", name="대손 차감 후 경상이익률",
+        marker=dict(color="#C0504D", symbol="circle", size=9),
+        customdata=[short(c) for c in df["회사"]],
+        hovertemplate="%{customdata}<br>대출금리 %{x:.2f}% / 대손 차감 후 경상이익률 %{y:.2f}%<extra></extra>"))
+    fig2.add_trace(go.Scatter(
+        x=xs, y=slope * xs + icpt, mode="lines", line=dict(color="#C0504D", dash="dot", width=3),
+        hoverinfo="skip", showlegend=False))
+    fig2.add_annotation(xref="paper", yref="paper", x=0.06, y=0.97, showarrow=False,
+                        text=f"<b>R² = {r2_net:.4f}</b>", font=dict(color="#C0504D", size=14), xanchor="left")
+    fig2.update_layout(
+        height=480, margin=dict(t=30, b=60), plot_bgcolor="white",
+        xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
+        yaxis=dict(title="총자산 대비(%)", showgrid=False, zeroline=True, zerolinecolor="#999", linecolor="#999"),
+        legend=dict(x=0.5, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
     return (
         f'<h4>회사별 대출금리 수준과 경상이익률·대손비용률 <span class="caption" style="font-weight:normal;">'
-        f'(단위: %, {qlabel} 기준 연환산, NICE 유효등급 {len(df)}개사)</span></h4>'
-        f'{chart_div(fig)}'
+        f'(단위: %, {qlabel} 기준 연환산, 신평사 유효등급 {len(df)}개사)</span></h4>'
+        f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        f'<div class="cell">{chart_div(fig)}</div>'
+        f'<div class="cell">{chart_div(fig2)}</div>'
+        f'</div>'
         f'<p class="caption">{SCATTER_FOOTNOTE}</p>'
     )
-
 
 
 def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str]) -> str:
