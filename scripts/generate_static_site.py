@@ -21,6 +21,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.io as pio
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
@@ -38,6 +39,12 @@ SAVINGS_BANK_TABS = [
     "자산 현황", "부채 현황", "부문별 손익 현황", "대출금 운용",
     "자본적정성", "대차대조표", "손익계산서",
 ]
+
+# 차트 기본 스타일: 흰 배경, 가로(y축) 그리드만
+_tpl = pio.templates["plotly_white"]
+_tpl.layout.xaxis.showgrid = False
+_tpl.layout.yaxis.showgrid = True
+pio.templates.default = _tpl
 
 _chart_counter = [0]
 
@@ -396,7 +403,7 @@ def render_scatter_section(sector: str) -> str:
     fig.update_layout(
         height=480, margin=dict(t=30, b=60), plot_bgcolor="white",
         xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
-        yaxis=dict(title="총자산 대비(%)", showgrid=False, zeroline=True, zerolinecolor="#999", linecolor="#999"),
+        yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"),
         legend=dict(x=0.8, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
     # 2열: 오른쪽은 대손 차감 후 경상이익률(= 경상이익률 - 대손비용률)
     net = df["경상이익률"] - df["대손비용률"]
@@ -416,7 +423,7 @@ def render_scatter_section(sector: str) -> str:
     fig2.update_layout(
         height=480, margin=dict(t=30, b=60), plot_bgcolor="white",
         xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
-        yaxis=dict(title="총자산 대비(%)", showgrid=False, zeroline=True, zerolinecolor="#999", linecolor="#999"),
+        yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"),
         legend=dict(x=0.5, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
     return (
         f'<h4>회사별 대출금리 수준과 경상이익률·대손비용률 <span class="caption" style="font-weight:normal;">'
@@ -775,37 +782,45 @@ def industry_roa_series(long_df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_index()
 
 
-def render_profitability_tab(long_df: pd.DataFrame) -> str:
+def render_profitability_tab(long_df: pd.DataFrame, sector_key: str) -> str:
     rate = load_base_rate_quarterly()
     roa = industry_roa_series(long_df)
     if rate.empty or roa.empty:
         return '<p class="caption">기준금리 또는 ROA 데이터가 없어요.</p>'
     roa.index = [format_ym(int(v)) for v in roa.index]
     labels = list(rate.index)                    # 기준금리가 있는 분기(2018.Q3~)만 표시
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_trace(go.Scatter(
-        x=labels, y=[roa["ROA"].get(q) for q in labels], mode="lines+markers", name="ROA(연율화)",
-        line=dict(color="#2980B9", width=2.5), connectgaps=True,
-        hovertemplate="%{x}<br>ROA %{y:.2f}%<extra></extra>"), secondary_y=False)
-    fig.add_trace(go.Scatter(
-        x=labels, y=[roa["ROA4"].get(q) for q in labels], mode="lines+markers", name="ROA(4분기누적)",
-        line=dict(color="#85C1E9", width=2, dash="dot"), connectgaps=True, visible="legendonly",
-        hovertemplate="%{x}<br>ROA(4분기누적) %{y:.2f}%<extra></extra>"), secondary_y=False)
-    fig.add_trace(go.Scatter(
-        x=labels, y=rate.tolist(), mode="lines+markers", name="기준금리(우축)", line=dict(color="#E67E73", width=2.5, shape="hv"),
-        hovertemplate="%{x}<br>기준금리 %{y:.2f}%<extra></extra>"), secondary_y=True)
-    fig.update_yaxes(title_text="ROA (%)", zeroline=True, zerolinecolor="#999", secondary_y=False)
-    fig.update_yaxes(title_text="기준금리 (%)", showgrid=False, secondary_y=True)
-    fig.update_xaxes(type="category", tickangle=-45)
-    fig.update_layout(height=440, margin=dict(t=30, b=80), legend=dict(orientation="h", y=-0.28))
+    nn = lambda v: None if v is None or pd.isna(v) else round(float(v), 4)
+    data = {
+        "labels": labels,
+        "roa": [nn(roa["ROA"].get(q)) for q in labels],
+        "roa4": [nn(roa["ROA4"].get(q)) for q in labels],
+        "rate": [nn(v) for v in rate.tolist()],
+    }
+    scope = f"{sector_key}-prof"
+    payload = (f'<script type="application/json" id="data-{scope}">'
+               f'{json.dumps(data, ensure_ascii=False, separators=(",", ":"))}</script>')
+    presets = ["1Y", "3Y", "5Y", "전체", "설정"]
+    btns = "".join(
+        f'<button data-preset="{p}" onclick="{"profCustomToggle" if p == "설정" else "profPreset"}'
+        f'(\'{scope}\'{"" if p == "설정" else f",\'{p}\'"},this)">{p}</button>'
+        for p in presets
+    )
     note = ('<p class="caption">저축은행 업권 전체 ROA = 회사별 당기순이익(당분기) ×4 ÷ 총자산 분기 평잔을 업권 합산한 값이에요 '
-            '(4분기누적은 범례를 눌러 켜세요). 기준금리는 인포맥스 데이터의 분기말 값이에요.</p>')
+            '(4분기누적은 범례를 눌러 켜세요). 기준금리는 인포맥스 데이터의 분기말 값이고 우축은 역축(위쪽이 낮은 금리)이에요.</p>')
+    controls = (
+        f'<div class="period-bar" data-scope="{scope}"><span class="period-label">기간</span>{btns}</div>'
+        f'<div class="custom-range" id="{scope}-customBox">'
+        f'<input type="text" id="{scope}-start" placeholder="2020.Q1" style="width:90px;"> ~ '
+        f'<input type="text" id="{scope}-end" placeholder="2026.Q2" style="width:90px;"> '
+        f'<button onclick="profCustomApply(\'{scope}\')">적용</button></div>'
+    )
     return (
-        '<h4>ROA와 기준금리</h4>' + note +
+        '<h4>ROA와 기준금리</h4>' + note + payload + controls +
         '<div class="grid" style="grid-template-columns:1fr 1fr;">'
-        f'<div class="cell">{chart_div(fig)}</div>'
+        f'<div class="cell"><div id="profChart-{scope}" class="plotly-chart"></div></div>'
         '<div class="cell"></div>'
         '</div>'
+        f'<script>initProf("{scope}");</script>'
     )
 
 
@@ -830,7 +845,7 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     rest = [
         render_statement_tab(f"{sector_key}-{stmt_kind[lbl][0]}", sector, stmt_kind[lbl][1])
         if lbl in stmt_kind
-        else render_profitability_tab(long_df) if lbl == "수익성"
+        else render_profitability_tab(long_df, sector_key) if lbl == "수익성"
         else render_placeholder_tab(lbl)
         for lbl in SAVINGS_BANK_TABS[2:]
     ]
@@ -1060,6 +1075,10 @@ function onCrChange(sector) { renderCrBarChart(sector); renderAllCrTrends(sector
 function plotReact(id, data, layout, cfg) {
   var el = document.getElementById(id);
   if (el.querySelector('p.caption')) el.innerHTML = '';
+  // 기본 스타일: 흰 배경, 가로(y축) 그리드만 (차트별로 지정한 값이 있으면 그걸 우선)
+  layout = Object.assign({plot_bgcolor: 'white', paper_bgcolor: 'white'}, layout || {});
+  layout.xaxis = Object.assign({showgrid: false}, layout.xaxis || {});
+  layout.yaxis = Object.assign({showgrid: true, gridcolor: '#e5e7eb'}, layout.yaxis || {});
   return Plotly.react(id, data, layout, cfg);
 }
 function emptyChartMsg(id, msg) {
@@ -1435,6 +1454,74 @@ function renderIsTable(sector) {
     );
   });
   document.getElementById('isBody-' + sector).innerHTML = html.join('');
+}
+
+/* ===================== 수익성 탭: ROA vs 기준금리 ===================== */
+var PROF = {};
+function initProf(scope) {
+  var el = document.getElementById('data-' + scope);
+  if (!el) return;
+  PROF[scope] = {d: JSON.parse(el.textContent), preset: '전체', start: null, end: null};
+  var btn = document.querySelector('.period-bar[data-scope="' + scope + '"] button[data-preset="전체"]');
+  if (btn) btn.classList.add('active');
+  renderProf(scope);
+}
+function profIndices(scope) {
+  var st = PROF[scope], n = st.d.labels.length;
+  var all = st.d.labels.map(function(_, i){ return i; });
+  if (st.preset === '설정' && st.start && st.end) {
+    var s = st.d.labels.indexOf(st.start), e = st.d.labels.indexOf(st.end);
+    if (s !== -1 && e !== -1) return all.filter(function(i){ return i >= s && i <= e; });
+    return all;
+  }
+  var years = {'1Y': 1, '3Y': 3, '5Y': 5}[st.preset];
+  if (!years) return all;
+  var start = Math.max(0, n - years * 4);
+  return all.filter(function(i){ return i >= start; });
+}
+function profPreset(scope, preset, btn) {
+  PROF[scope].preset = preset;
+  var bar = document.querySelector('.period-bar[data-scope="' + scope + '"]');
+  bar.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  document.getElementById(scope + '-customBox').classList.remove('show');
+  renderProf(scope);
+}
+function profCustomToggle(scope, btn) {
+  document.getElementById(scope + '-customBox').classList.toggle('show');
+  var bar = document.querySelector('.period-bar[data-scope="' + scope + '"]');
+  bar.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+}
+function profCustomApply(scope) {
+  var s = document.getElementById(scope + '-start').value.trim();
+  var e = document.getElementById(scope + '-end').value.trim();
+  if (!s || !e) return;
+  PROF[scope].preset = '설정'; PROF[scope].start = s; PROF[scope].end = e;
+  renderProf(scope);
+}
+function renderProf(scope) {
+  var st = PROF[scope], d = st.d, id = 'profChart-' + scope;
+  var idx = profIndices(scope);
+  var pick = function(arr){ return idx.map(function(i){ return arr[i]; }); };
+  var el = document.getElementById(id);
+  var roa4Visible = (el.data && el.data[1]) ? el.data[1].visible : 'legendonly';  // 범례 토글 상태 유지
+  var x = pick(d.labels);
+  plotReact(id, [
+    {x: x, y: pick(d.roa), type: 'scatter', mode: 'lines+markers', name: 'ROA(연율화)', connectgaps: true,
+     line: {color: '#2980B9', width: 2.5}, hovertemplate: '%{x}<br>ROA %{y:.2f}%<extra></extra>'},
+    {x: x, y: pick(d.roa4), type: 'scatter', mode: 'lines+markers', name: 'ROA(4분기누적)', connectgaps: true,
+     line: {color: '#85C1E9', width: 2, dash: 'dot'}, visible: roa4Visible,
+     hovertemplate: '%{x}<br>ROA(4분기누적) %{y:.2f}%<extra></extra>'},
+    {x: x, y: pick(d.rate), type: 'scatter', mode: 'lines+markers', name: '기준금리(우축·역축)', yaxis: 'y2',
+     line: {color: '#E67E73', width: 2.5, shape: 'hv'}, hovertemplate: '%{x}<br>기준금리 %{y:.2f}%<extra></extra>'}
+  ], {
+    height: 440, margin: {t: 30, b: 80, l: 60, r: 60},
+    xaxis: {type: 'category', tickangle: -45},
+    yaxis: {title: 'ROA (%)', zeroline: true, zerolinecolor: '#999'},
+    yaxis2: {title: '기준금리 (%)', overlaying: 'y', side: 'right', autorange: 'reversed', showgrid: false},
+    legend: {orientation: 'h', y: -0.3}
+  }, {displaylogo: false, responsive: true});
 }
 
 """
