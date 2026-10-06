@@ -277,6 +277,18 @@ CR_NOTE = (
 
 RANGE_PRESETS = ["1Y", "3Y", "5Y", "10Y", "전체", "설정"]
 
+RATED_CSV = REPO_DIR / "output" / "(E)상호저축은행" / "신용등급_전체80개사.csv"
+
+
+def load_rated_companies(company_order: list[str]) -> list[str]:
+    """신평사 유효등급 보유 회사(신용등급_전체80개사.csv의 '신평사유효등급보유'=O). company_order 순서 유지.
+    파일이 없으면 빈 리스트 -> 화면에서는 전체 회사로 대체."""
+    if not RATED_CSV.exists():
+        return []
+    r = pd.read_csv(RATED_CSV, encoding="cp949").fillna("")
+    rated = set(r.loc[r["신평사유효등급보유"] == "O", "금융회사명"])
+    return [c for c in company_order if c in rated]
+
 
 def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str]) -> str:
     long_df = load_sector_long(sector)
@@ -288,6 +300,8 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
 
     js_data = build_sector_js_data(cr_full, company_order, metrics=CR_METRICS)
     js_data["nameSuffix"] = SECTOR_NAME_SUFFIX.get(sector, "")
+    rated = load_rated_companies(company_order)
+    js_data["rated"] = rated
     data_script = (f'<script type="application/json" id="data-{sector_key}">'
                     f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
 
@@ -296,8 +310,11 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
         f'<option value="{q}"{" selected" if i == len(js_data["quarters"]) - 1 else ""}>{q}</option>'
         for i, q in enumerate(js_data["quarters"])
     )
-    company_options = "".join(f"<option value=\"{c}\">" for c in company_order)
-    default_company = company_order[0] if company_order else ""
+    listed = rated or company_order   # 등급보유 목록이 없으면 전체 회사로 대체
+    company_options = "".join(f"<option value=\"{c}\">" for c in listed)
+    default_company = listed[0] if listed else ""
+    bar_note = (f'<p class="caption">신평사 유효등급 보유 {len(rated)}개사 기준이에요 (2026.6월 기준). '
+                '회사 선택 검색창에서는 그 외 회사도 검색해서 볼 수 있어요.</p>') if rated else ""
 
     bar_section = (
         '<h4>회사별 지표 비교</h4>'
@@ -307,6 +324,7 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
         '<label>기준 분기 '
         f'<select id="crQuarterSelect-{sector_key}" onchange="onCrChange(\'{sector_key}\')">{quarter_options}</select></label>'
         '</div>'
+        f'{bar_note}'
         f'<div id="crBarChart-{sector_key}" class="plotly-chart"></div>'
     )
 
@@ -321,8 +339,8 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
         '<label>회사 선택(검색 가능) '
         f'<input type="text" id="crCompanySelect-{sector_key}" list="crCompanyList-{sector_key}" '
         f'value="{default_company}" autocomplete="off" '
-        f'onfocus="crCompanyFocus(this)" onblur="crCompanyBlur(\'{sector_key}\',this)" '
-        f'oninput="onCrChange(\'{sector_key}\')"></label>'
+        f'onfocus="crCrFocus(\'{sector_key}\',this)" onblur="crCompanyBlur(\'{sector_key}\',this)" '
+        f'oninput="crCrInput(\'{sector_key}\',this)"></label>'
         f'<datalist id="crCompanyList-{sector_key}">{company_options}</datalist>'
         '</div>'
         f'<div class="period-bar" data-scope="{sector_key}">'
@@ -333,9 +351,13 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
         f'<button onclick="applyCrCustomRange(\'{sector_key}\')">적용</button></div>'
     )
 
-    trend_sections = "".join(
-        f'<h4>{m}</h4><div id="crTrend-{sector_key}-{i}" class="plotly-chart"></div>'
-        for i, m in enumerate(CR_METRICS)
+    # 한 줄에 너무 길면 추세가 안 보여서 2열 그리드로 배치
+    trend_sections = (
+        '<div class="grid" style="grid-template-columns:1fr 1fr;">' +
+        "".join(
+            f'<div class="cell"><h4>{m}</h4><div id="crTrend-{sector_key}-{i}" class="plotly-chart"></div></div>'
+            for i, m in enumerate(CR_METRICS)
+        ) + '</div>'
     )
 
     return (
@@ -721,7 +743,7 @@ function renderBarChart(sector) {
   pairs.sort(function(a, b){ return b[1] - a[1]; });
   var x = pairs.map(function(p){ return p[0]; });
   var y = pairs.map(function(p){ return p[1]; });
-  Plotly.react('barChart-' + sector, [{x:x, y:y, type:'bar', marker:{color:'#2980B9'}}], {
+  plotReact('barChart-' + sector, [{x:x, y:y, type:'bar', marker:{color:'#2980B9'}}], {
     height:440, margin:{t:20, b:140}, xaxis:{tickangle:-45}, yaxis:{title:'당기순이익(억원)'}
   }, {displaylogo:false, responsive:true});
 }
@@ -738,7 +760,7 @@ function renderTrendCharts(sector) {
   var s = data.series[company];
   var pick = function(arr){ return idx.map(function(i){ return arr[i]; }); };
 
-  Plotly.react('trendNI-' + sector, [{x:quarters, y:pick(s['당기순이익']), type:'bar', marker:{color:'#2980B9'}}], {
+  plotReact('trendNI-' + sector, [{x:quarters, y:pick(s['당기순이익']), type:'bar', marker:{color:'#2980B9'}}], {
     height:360, margin:{t:40}, title:company + ' 당기순이익 추이', yaxis:{title:'당기순이익(원)'}
   }, {displaylogo:false, responsive:true});
 
@@ -749,7 +771,7 @@ function renderTrendCharts(sector) {
   if (s['ROA'].some(function(v){ return v !== null; }))
     traces.push({x:quarters, y:pick(s['ROA']), mode:'lines+markers', name:'ROA', connectgaps:true,
                  line:{color:'#E67E22'}, yaxis:'y2'});
-  Plotly.react('trendRoaRoe-' + sector, traces, {
+  plotReact('trendRoaRoe-' + sector, traces, {
     height:360, margin:{t:40, r:50}, title:company + ' ROA / ROE 추이',
     yaxis:{title:'ROE(%)'}, yaxis2:{title:'ROA(%)', overlaying:'y', side:'right'},
     legend:{orientation:'h', y:-0.2}
@@ -809,6 +831,12 @@ function initCrSector(sector) {
 }
 function onCrChange(sector) { renderCrBarChart(sector); renderAllCrTrends(sector); }
 
+// emptyChartMsg가 넣어둔 안내 문구가 남아 있으면 지우고 그려야 차트가 문구 위에 겹쳐 그려지지 않음
+function plotReact(id, data, layout, cfg) {
+  var el = document.getElementById(id);
+  if (el.querySelector('p.caption')) el.innerHTML = '';
+  return Plotly.react(id, data, layout, cfg);
+}
 function emptyChartMsg(id, msg) {
   var el = document.getElementById(id);
   if (window.Plotly) Plotly.purge(el);
@@ -821,7 +849,8 @@ function renderCrBarChart(sector) {
   var metric = document.getElementById('crMetricSelect-' + sector).value;
   var q = document.getElementById('crQuarterSelect-' + sector).value;
   var qIdx = data.quarters.indexOf(q);
-  var pairs = data.companies
+  var barCompanies = (data.rated && data.rated.length) ? data.rated : data.companies;
+  var pairs = barCompanies
     .map(function(c){ return [shortName(sector, c), data.series[c][metric][qIdx]]; })
     .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
   var elId = 'crBarChart-' + sector;
@@ -830,7 +859,7 @@ function renderCrBarChart(sector) {
     return;
   }
   pairs.sort(function(a, b){ return b[1] - a[1]; });
-  Plotly.react(elId, [{
+  plotReact(elId, [{
     x:pairs.map(function(p){ return p[0]; }), y:pairs.map(function(p){ return p[1]; }),
     type:'bar', marker:{color:'#2980B9'}
   }], {
@@ -842,6 +871,21 @@ function renderCrBarChart(sector) {
 function crCompanyFocus(el) {
   el.dataset.prev = el.value;
   el.value = '';
+}
+// 주요 지표 탭 회사 검색창: 비어 있을 땐 신평사 유효등급 보유 회사만, 글자를 입력하면 전체 회사에서 검색
+function crFillList(sector, all) {
+  var data = SECTOR_DATA[sector];
+  var list = document.getElementById('crCompanyList-' + sector);
+  var names = (all || !(data.rated && data.rated.length)) ? data.companies : data.rated;
+  list.innerHTML = names.map(function(c){ return '<option value="' + c + '">'; }).join('');
+}
+function crCrFocus(sector, el) {
+  crCompanyFocus(el);
+  crFillList(sector, false);
+}
+function crCrInput(sector, el) {
+  crFillList(sector, el.value.length > 0);
+  onCrChange(sector);
 }
 function crCompanyBlur(sector, el) {
   if (!el.value) el.value = el.dataset.prev || '';
@@ -917,7 +961,7 @@ function renderCrTrend(sector, i, metric) {
     emptyChartMsg(elId, '이 기간엔 ' + metric + ' 데이터가 없어요.');
     return;
   }
-  Plotly.react(elId, [
+  plotReact(elId, [
     {x:quarters, y:avgVals, mode:'lines+markers', connectgaps:true, name:'업권 평균',
      line:{color:'#999', dash:'dot'}},
     {x:quarters, y:companyVals, mode:'lines+markers', connectgaps:true, name:shortName(sector, company),
@@ -1059,7 +1103,7 @@ function renderIsWaterfall(sector) {
     totals: {marker: {color: '#34495E'}},
     hovertemplate: '%{x}: %{y:,.1f}억원<extra></extra>'
   };
-  Plotly.react(id, [trace], {
+  plotReact(id, [trace], {
     height: 400, margin: {t: 20, r: 20, b: 40, l: 70}, yaxis: {title: '억원', tickformat: ','},
     showlegend: false
   }, {displaylogo: false, responsive: true});
@@ -1092,7 +1136,7 @@ function renderBsStack(sector) {
       });
     });
   });
-  Plotly.react(id, traces, {
+  plotReact(id, traces, {
     barmode: 'stack', height: 440, margin: {t: 20, r: 20, b: 40, l: 70},
     yaxis: {title: '억원', tickformat: ','}, showlegend: false
   }, {displaylogo: false, responsive: true});
@@ -1105,7 +1149,7 @@ function renderIsPies(sector) {
     var items = pie.ids.map(function(code){ return {name: isCodeName(st, code), v: isV(st, code, st.idx)}; })
       .filter(function(it){ return it.v !== null && it.v > 0; });
     if (!items.length) { emptyChartMsg(id, '해당 분기 데이터가 없어요.'); return; }
-    Plotly.react(id, [{
+    plotReact(id, [{
       type: 'pie', hole: 0.45, labels: items.map(function(i){ return i.name; }),
       values: items.map(function(i){ return i.v / 100; }),
       textinfo: 'label+percent', sort: true, automargin: true, marker: {colors: pie.colors},
