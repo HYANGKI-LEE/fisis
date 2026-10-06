@@ -39,9 +39,21 @@ def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     )
 
 
+def keep_system_awake() -> None:
+    """절전에서 깨운 직후 몇 시간짜리 수집을 도는 동안 윈도우가 다시 절전으로
+    들어가 버리지 않게 막는다 (프로세스가 끝나면 자동 해제됨)."""
+    if os.name != "nt":
+        return
+    import ctypes
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+
+
 def main() -> int:
     log("=== 일일 자동 업데이트 시작 ===")
     log(f"[진단] sys.executable={sys.executable}")
+    keep_system_awake()
 
     # 시작 전에 output/ 아래가 깨끗한지부터 확인 - 수동 테스트하다 남긴 파일 등
     # 이 스크립트와 무관한 변경사항이 있으면, 그걸 "새로 받은 데이터"로 착각해서
