@@ -14,13 +14,16 @@ import json
 import sys
 from pathlib import Path
 
+import re
+
+import numpy as np
 import pandas as pd
 import plotly.express as px
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
 
-from dashboard.loader import SECTOR_FOLDERS, load_sector_long  # noqa: E402
+from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path, load_sector_long  # noqa: E402
 from dashboard.kpis import build_kpi_table, build_credit_rating_table  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
@@ -341,6 +344,121 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     )
 
 
+# ================================================================ 손익계산서 (SE006 요약손익계산서)
+IS_TABLE_CODE = "SE006"
+IS_START_YM = 201703            # 전년동기 비교가 2018년부터 되도록 2017년부터 내장
+IS_ALL_LABEL = "저축은행 전체"
+IS_HEADLINE = ["A", "B", "C", "D", "E", "I", "J", "K"]
+
+
+def _clean_is_name(raw: str) -> str:
+    """'이자수익_대출금이자_계 급 부 이 익' -> '계급부이익' (마지막 구간만, 글자 사이 공백 제거)"""
+    last = str(raw).split("_")[-1].strip()
+    tokens = last.split()
+    if len(tokens) > 1 and all(len(t) == 1 for t in tokens):
+        return "".join(tokens)
+    return last
+
+
+def build_income_statement_data(sector: str) -> dict | None:
+    """final_df의 SE006(요약손익계산서) 당분기 값을 회사 x 코드 x 분기 JSON으로 변환.
+    값은 백만원 단위 정수로 줄여서 내장하고(용량), 누계/전체합계는 브라우저에서 계산한다."""
+    path = latest_final_df_path(sector)
+    if path is None:
+        return None
+    df = pd.read_csv(path, index_col=0, encoding="cp949", low_memory=False)
+    t = df[(df["통계표코드"].astype(str) == IS_TABLE_CODE) & (df["항목"] == "당분기")].copy()
+    qcols = [c for c in df.columns if re.fullmatch(r"\d{6}", str(c)) and int(c) >= IS_START_YM]
+    if t.empty or not qcols:
+        return None
+    for c in qcols:
+        t[c] = pd.to_numeric(t[c], errors="coerce")
+
+    # 코드별 표시명: 가장 최근 분기에 값이 있던 행의 이름
+    names, levels = {}, {}
+    for code, g in t.groupby("코드"):
+        m = g[qcols].notna().values
+        last = np.where(m.any(axis=1), m.shape[1] - 1 - np.argmax(m[:, ::-1], axis=1), -1)
+        latest_row = g.iloc[int(last.argmax())]
+        names[code] = _clean_is_name(latest_row["구분"])
+        levels[code] = len(code) - 1
+
+    # 전 기간 값이 없거나 늘 0인 코드는 회사별로 내장하지 않음(용량)
+    series, company_latest_rev = {}, {}
+    for company, g in t.groupby("금융회사명"):
+        g = g.drop_duplicates(subset="코드").set_index("코드")
+        per = {}
+        for code in g.index:
+            arr = g.loc[code, qcols].astype(float)
+            if arr.notna().sum() == 0 or (arr.fillna(0) == 0).all():
+                continue
+            per[code] = [None if pd.isna(v) else int(round(v / 1e6)) for v in arr]
+        if per:
+            series[company] = per
+            rev = g.loc["A", qcols].astype(float).dropna() if "A" in g.index else pd.Series(dtype=float)
+            company_latest_rev[company] = (int(qcols.index(rev.index[-1])) if len(rev) else -1,
+                                           float(rev.iloc[-1]) if len(rev) else 0.0)
+    used = sorted({c for per in series.values() for c in per})
+    codes = [{"code": c, "name": names[c], "level": levels[c]} for c in used]
+    # 최신 분기 영업수익 큰 순(공시 종료된 회사는 뒤로)
+    companies = sorted(series, key=lambda n: company_latest_rev[n], reverse=True)
+    return {
+        "quarters": [format_ym(int(q)) for q in qcols],
+        "companies": companies,
+        "codes": codes,
+        "series": series,
+        "allLabel": IS_ALL_LABEL,
+        "headline": IS_HEADLINE,
+    }
+
+
+def render_income_statement_tab(sector_key: str, sector: str) -> str:
+    data = build_income_statement_data(sector)
+    if data is None:
+        return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+    payload = (f'<script type="application/json" id="data-{sector_key}">'
+               f'{json.dumps(data, ensure_ascii=False, separators=(",", ":"))}</script>')
+    last_i = len(data["quarters"]) - 1
+    quarter_options = "".join(
+        f'<option value="{i}"{" selected" if i == last_i else ""}>{data["quarters"][i]}</option>'
+        for i in range(last_i, -1, -1)
+    )
+    company_options = "".join(f'<option value="{c}">' for c in [IS_ALL_LABEL] + data["companies"])
+    controls = (
+        '<div class="control-row">'
+        '<label>회사(검색 가능) '
+        f'<input type="text" id="isCompany-{sector_key}" list="isCompanyList-{sector_key}" '
+        f'value="{IS_ALL_LABEL}" autocomplete="off" '
+        f'onfocus="crCompanyFocus(this)" onblur="isCompanyBlur(\'{sector_key}\',this)" '
+        f'oninput="onIsChange(\'{sector_key}\')"></label>'
+        f'<datalist id="isCompanyList-{sector_key}">{company_options}</datalist>'
+        '<label>기준 분기 '
+        f'<select id="isQuarter-{sector_key}" onchange="onIsChange(\'{sector_key}\')" style="min-width:120px;">'
+        f'{quarter_options}</select></label>'
+        '<label>구분 '
+        f'<select id="isBasis-{sector_key}" onchange="onIsChange(\'{sector_key}\')" style="min-width:120px;">'
+        '<option value="q">당분기</option><option value="cum">누계(연초~)</option></select></label>'
+        '</div>'
+        f'<p class="caption" id="isCaption-{sector_key}"></p>'
+    )
+    body = (
+        '<h4>손익 흐름</h4>'
+        f'<div id="isWaterfall-{sector_key}" class="plotly-chart"></div>'
+        '<h4>수익 / 비용 구성</h4>'
+        '<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        f'<div class="cell"><div id="isRevPie-{sector_key}" class="plotly-chart"></div></div>'
+        f'<div class="cell"><div id="isCostPie-{sector_key}" class="plotly-chart"></div></div>'
+        '</div>'
+        '<h4>요약손익계산서 <span class="caption" style="font-weight:normal;">(단위: 억원 · ▶를 눌러 세부 항목 펼치기)</span></h4>'
+        '<div style="overflow-x:auto;"><table class="data-table is-table" id="isTable-' + sector_key + '">'
+        '<thead><tr><th>항목</th><th>금액</th><th>영업수익 대비</th>'
+        '<th class="is-qoq">전분기</th><th class="is-qoq">전분기대비</th>'
+        '<th>전년동기</th><th>전년동기대비</th></tr></thead>'
+        f'<tbody id="isBody-{sector_key}"></tbody></table></div>'
+    )
+    return payload + controls + body + f'<script>initIsSector("{sector_key}");</script>'
+
+
 def render_placeholder_tab(label: str) -> str:
     return f'<p class="caption">"{label}" 탭은 준비 중이에요. 곧 채워질 예정입니다.</p>'
 
@@ -358,7 +476,12 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order)
     perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full)
 
-    bodies = [cr_content, perf_content] + [render_placeholder_tab(lbl) for lbl in SAVINGS_BANK_TABS[2:]]
+    rest = [
+        render_income_statement_tab(f"{sector_key}-is", sector) if lbl == "손익계산서"
+        else render_placeholder_tab(lbl)
+        for lbl in SAVINGS_BANK_TABS[2:]
+    ]
+    bodies = [cr_content, perf_content] + rest
     return tabs_html(SAVINGS_BANK_TABS, bodies)
 
 
@@ -390,6 +513,10 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; white-space:nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align:left; }
 .data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
+.is-table td:first-child { text-align:left; }
+.is-table tr.is-head td { font-weight:700; background:#f7f8fa; }
+.is-toggle { cursor:pointer; color:var(--accent); font-size:11px; display:inline-block; width:14px; }
+.is-toggle-pad { display:inline-block; width:14px; }
 .data-table th.sortable { cursor:pointer; user-select:none; }
 .data-table th.sortable:hover { color:var(--accent); }
 .sort-arrow { font-size:11px; color:var(--accent); }
@@ -699,6 +826,213 @@ document.addEventListener('DOMContentLoaded', function() {
   var valid = document.getElementById('page-' + hash);
   showPage(valid ? hash : DEFAULT_PAGE);
 });
+/* ===================== 손익계산서 탭 (SE006) ===================== */
+var IS_STATE = {};
+
+function initIsSector(sector) {
+  var el = document.getElementById('data-' + sector);
+  if (!el) return;
+  var data = JSON.parse(el.textContent);
+  var codeSet = {};
+  data.codes.forEach(function(c){ codeSet[c.code] = true; });
+  var parent = {};
+  data.codes.forEach(function(c){
+    for (var n = c.code.length - 1; n >= 1; n--) {
+      var p = c.code.substring(0, n);
+      if (codeSet[p]) { parent[c.code] = p; break; }
+    }
+  });
+  var agg = {};
+  data.codes.forEach(function(c){
+    var arr = data.quarters.map(function(){ return null; });
+    data.companies.forEach(function(co){
+      var s = data.series[co][c.code];
+      if (!s) return;
+      for (var i = 0; i < s.length; i++) {
+        if (s[i] !== null) arr[i] = (arr[i] || 0) + s[i];
+      }
+    });
+    agg[c.code] = arr;
+  });
+  var children = {};
+  Object.keys(parent).forEach(function(k){ (children[parent[k]] = children[parent[k]] || []).push(k); });
+  IS_STATE[sector] = {data: data, parent: parent, children: children, agg: agg, open: {}};
+  onIsChange(sector);
+}
+
+function isCompanyBlur(sector, el) {
+  if (!el.value) el.value = el.dataset.prev || '';
+  onIsChange(sector);
+}
+
+function isSeries(st, company, code) {
+  if (company === st.data.allLabel) return st.agg[code] || null;
+  var s = st.data.series[company];
+  return s ? (s[code] || null) : null;
+}
+
+function isValue(st, company, code, idx, basis) {
+  if (idx < 0) return null;
+  var s = isSeries(st, company, code);
+  if (!s) return null;
+  if (basis === 'q') return s[idx];
+  var qn = parseInt(st.data.quarters[idx].split('Q')[1], 10);
+  var sum = null;
+  for (var i = idx - (qn - 1); i <= idx; i++) {
+    if (i >= 0 && s[i] !== null) sum = (sum || 0) + s[i];
+  }
+  return sum;
+}
+
+function fmtEokJs(v) {
+  if (v === null || v === undefined) return '-';
+  var e = v / 100;
+  var d = Math.abs(e) >= 1000 ? 0 : 1;
+  return e.toLocaleString('ko-KR', {minimumFractionDigits: d, maximumFractionDigits: d});
+}
+function fmtPctJs(v, signed) {
+  if (v === null || v === undefined || !isFinite(v)) return '-';
+  var s = v.toFixed(1) + '%';
+  return (signed && v > 0) ? '+' + s : s;
+}
+function chgPct(cur, prev) {
+  if (cur === null || prev === null || prev === 0) return null;
+  return (cur - prev) / Math.abs(prev) * 100;
+}
+
+function onIsChange(sector) {
+  var st = IS_STATE[sector];
+  if (!st) return;
+  var data = st.data;
+  var input = document.getElementById('isCompany-' + sector);
+  var company = input.value;
+  if (company !== data.allLabel && !data.series[company]) return;  // 입력 중이거나 목록에 없는 이름
+  st.company = company;
+  st.idx = parseInt(document.getElementById('isQuarter-' + sector).value, 10);
+  st.basis = document.getElementById('isBasis-' + sector).value;
+  renderIsCaption(sector);
+  renderIsWaterfall(sector);
+  renderIsPies(sector);
+  renderIsTable(sector);
+}
+
+function isV(st, code, idx) { return isValue(st, st.company, code, idx, st.basis); }
+
+function renderIsCaption(sector) {
+  var st = IS_STATE[sector], data = st.data;
+  var txt = st.company + ' · ' + data.quarters[st.idx] + (st.basis === 'cum' ? ' 누계(연초~해당 분기)' : ' 당분기');
+  if (st.company === data.allLabel) {
+    var n = 0;
+    data.companies.forEach(function(co){
+      var s = data.series[co]['A'];
+      if (s && s[st.idx] !== null) n++;
+    });
+    txt += ' · 해당 분기 공시 ' + n + '개사 합산';
+  } else if (isV(st, 'A', st.idx) === null) {
+    txt += ' · 해당 분기 데이터 없음';
+  }
+  document.getElementById('isCaption-' + sector).textContent = txt;
+}
+
+function renderIsWaterfall(sector) {
+  var st = IS_STATE[sector];
+  var id = 'isWaterfall-' + sector;
+  var g = function(c){ return isV(st, c, st.idx); };
+  var A = g('A');
+  if (A === null) { emptyChartMsg(id, '해당 분기 데이터가 없어요.'); return; }
+  var nz = function(v){ return v === null ? 0 : v; };
+  var labels = ['영업수익', '영업비용', '영업이익', '영업외수익', '영업외비용', '법인세', '당기순이익'];
+  var vals = [A, -nz(g('B')), nz(g('C')), nz(g('D')), -nz(g('E')), -nz(g('J')), nz(g('K'))];
+  var measure = ['absolute', 'relative', 'total', 'relative', 'relative', 'relative', 'total'];
+  var y = vals.map(function(v){ return v / 100; });
+  var trace = {
+    type: 'waterfall', orientation: 'v', x: labels, y: y, measure: measure,
+    text: vals.map(function(v){ return fmtEokJs(v); }), textposition: 'outside',
+    connector: {line: {color: '#bbb'}},
+    increasing: {marker: {color: '#2980B9'}}, decreasing: {marker: {color: '#E67E73'}},
+    totals: {marker: {color: '#34495E'}},
+    hovertemplate: '%{x}: %{y:,.1f}억원<extra></extra>'
+  };
+  Plotly.react(id, [trace], {
+    height: 400, margin: {t: 20, r: 20, b: 40, l: 70}, yaxis: {title: '억원', tickformat: ','},
+    showlegend: false
+  }, {displaylogo: false, responsive: true});
+}
+
+function renderIsPies(sector) {
+  var st = IS_STATE[sector], data = st.data;
+  function pie(prefix, id, title, colors) {
+    var items = data.codes.filter(function(c){ return c.code.length === 2 && c.code.charAt(0) === prefix; })
+      .map(function(c){ return {name: c.name, v: isV(st, c.code, st.idx)}; })
+      .filter(function(it){ return it.v !== null && it.v > 0; });
+    if (!items.length) { emptyChartMsg(id, '해당 분기 데이터가 없어요.'); return; }
+    Plotly.react(id, [{
+      type: 'pie', hole: 0.45, labels: items.map(function(i){ return i.name; }),
+      values: items.map(function(i){ return i.v / 100; }),
+      textinfo: 'label+percent', sort: true, automargin: true, marker: {colors: colors},
+      hovertemplate: '%{label}: %{value:,.1f}억원 (%{percent})<extra></extra>'
+    }], {
+      title: {text: title, font: {size: 15}}, height: 380, margin: {t: 50, r: 10, b: 10, l: 10}, showlegend: false
+    }, {displaylogo: false, responsive: true});
+  }
+  pie('A', 'isRevPie-' + sector, '영업수익 구성', ['#2980B9', '#5DADE2', '#85C1E9', '#AED6F1', '#1F618D', '#7FB3D5']);
+  pie('B', 'isCostPie-' + sector, '영업비용 구성', ['#E67E73', '#F1948A', '#F5B7B1', '#CD6155', '#EC7063', '#D98880']);
+}
+
+function isHasData(st, code) {
+  var a = isV(st, code, st.idx), b = isV(st, code, st.idx - 4);
+  return (a !== null && a !== 0) || (b !== null && b !== 0);
+}
+
+function isVisible(st, c) {
+  if (!isHasData(st, c.code) && st.data.headline.indexOf(c.code) === -1) return false;
+  var p = st.parent[c.code];
+  while (p) {
+    if (!st.open[p]) return false;
+    p = st.parent[p];
+  }
+  return true;
+}
+
+function toggleIsRow(sector, code) {
+  var st = IS_STATE[sector];
+  st.open[code] = !st.open[code];
+  renderIsTable(sector);
+}
+
+function renderIsTable(sector) {
+  var st = IS_STATE[sector], data = st.data;
+  var cum = st.basis === 'cum';
+  document.querySelectorAll('#isTable-' + sector + ' .is-qoq').forEach(function(el){
+    el.style.display = cum ? 'none' : '';
+  });
+  var rev = isV(st, 'A', st.idx);
+  var html = [];
+  data.codes.forEach(function(c){
+    if (!isVisible(st, c)) return;
+    var cur = isV(st, c.code, st.idx);
+    var prevQ = isV(st, c.code, st.idx - 1);
+    var prevY = isV(st, c.code, st.idx - 4);
+    var kids = (st.children[c.code] || []).filter(function(k){
+      return isHasData(st, k);
+    });
+    var isHead = data.headline.indexOf(c.code) !== -1;
+    var toggle = kids.length
+      ? '<span class="is-toggle" onclick="toggleIsRow(\\'' + sector + '\\',\\'' + c.code + '\\')">' +
+        (st.open[c.code] ? '▼' : '▶') + '</span> '
+      : '<span class="is-toggle-pad"></span>';
+    var pad = Math.max(0, c.level - 1) * 18;
+    var share = (rev !== null && rev !== 0 && cur !== null) ? cur / rev * 100 : null;
+    html.push(
+      '<tr class="' + (isHead ? 'is-head' : '') + '"><td style="padding-left:' + (8 + pad) + 'px;">' + toggle + c.name + '</td>' +
+      '<td>' + fmtEokJs(cur) + '</td><td>' + fmtPctJs(share, false) + '</td>' +
+      (cum ? '' : '<td>' + fmtEokJs(prevQ) + '</td><td>' + fmtPctJs(chgPct(cur, prevQ), true) + '</td>') +
+      '<td>' + fmtEokJs(prevY) + '</td><td>' + fmtPctJs(chgPct(cur, prevY), true) + '</td></tr>'
+    );
+  });
+  document.getElementById('isBody-' + sector).innerHTML = html.join('');
+}
+
 """
 
 
