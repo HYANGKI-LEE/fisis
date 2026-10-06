@@ -13,6 +13,7 @@ final_df를 덮어써서 과거 이력이 통째로 날아감 (실제로 한 번
 """
 import glob
 import os
+import re
 import sys
 
 import pandas as pd
@@ -74,8 +75,33 @@ def merge_into_final_df(sector: str, lrgDiv: str, lrgDivNm: str) -> str | None:
 
     old_df = _read_csv(old_path)
 
+    merged, new_date_cols = merge_frames(old_df, new_df)
+    if merged is None:
+        return None
+
+    new_period = new_date_cols[-1]  # 여러 분기를 한 번에 받았을 수 있으니 가장 최근 분기를 파일명에 사용
+    new_path = os.path.join(os.path.dirname(old_path), f"{lrgDivNm}_{new_period}.csv")
+    merged.to_csv(new_path, encoding="cp949")
+    return new_path
+
+
+DATE_COL_RE = re.compile(r"^\d{6}$")
+
+
+def merge_frames(old_df: pd.DataFrame, new_df: pd.DataFrame):
+    """기존 final_df(old_df)에 새 분기 컬럼만 추가한 (merged, 추가된 분기 컬럼 목록)을 반환.
+    추가할 새 분기가 없으면 (None, []).
+
+    로컬에는 예전에 받아둔 long_df/wide_df 버킷이 남아 있어서 new_df에 이미 old_df에
+    있는 분기(예: 직전 실행에서 받은 202506)가 섞여 들어올 수 있다 - 그대로 merge하면
+    같은 이름 컬럼이 _x/_y로 중복돼 final_df가 깨지므로, old_df에 없는 분기만 추가한다."""
     key_cols = [c for c in KEY_COLS if c in old_df.columns and c in new_df.columns]
-    new_date_cols = [c for c in new_df.columns if c not in KEY_COLS]
+    new_date_cols = sorted(
+        c for c in new_df.columns
+        if c not in KEY_COLS and DATE_COL_RE.match(str(c)) and c not in old_df.columns
+    )
+    if not new_date_cols:
+        return None, []
 
     # 항목 컬럼이 NaN이면 merge key로 쓸 때 서로 매칭이 안 될 수 있어 임시 치환
     sentinel = "__NA__"
@@ -88,8 +114,4 @@ def merge_into_final_df(sector: str, lrgDiv: str, lrgDivNm: str) -> str | None:
     merged = old_keyed.merge(new_keyed[key_cols + new_date_cols], on=key_cols, how="outer")
     for c in key_cols:
         merged[c] = merged[c].replace(sentinel, pd.NA)
-
-    new_period = new_date_cols[0]
-    new_path = os.path.join(os.path.dirname(old_path), f"{lrgDivNm}_{new_period}.csv")
-    merged.to_csv(new_path, encoding="cp949")
-    return new_path
+    return merged, new_date_cols

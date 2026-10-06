@@ -19,7 +19,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_PATH = os.path.join(REPO_ROOT, "scheduler", "run_daily.log")
 
-UPDATED_RE = re.compile(r"^\[(.+?)\] 업데이트됨: (\d+) -> (\d+)$")
+UPDATED_RE = re.compile(r"^\[(.+?)\] 업데이트됨: (\d+) -> (\d+)$", re.M)
 
 
 def log(msg: str) -> None:
