@@ -18,4 +18,5 @@ output/**/merged_df/
 scheduler/run_daily.log
 
 # 로컬 가상환경 (작업 스케줄러 전용, 로밍 프로필 접근 문제 우회용)
-.venv/scheduler/logs/
+.venv/
+scheduler/logs/
