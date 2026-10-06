@@ -275,6 +275,11 @@ CR_NOTE = (
     '충당금적립전영업이익률은 FISIS에서 연 1회(4분기)만 공시돼서 다른 분기는 비어있어요.</p>'
 )
 
+# 회사별 지표 비교 드롭다운에만 추가되는 지표(추이 차트는 만들지 않음)
+CR_BAR_ONLY_METRICS = ["대출이자수익률"]
+CR_BAR_NOTE = ("대출이자수익률 = 연환산(×4) 당분기 대출금 이자수익 ÷ 대출채권 분기 평잔"
+               "((당분기말 + 직전 분기말) / 2).")
+
 RANGE_PRESETS = ["1Y", "3Y", "5Y", "10Y", "전체", "설정"]
 
 RATED_CSV = REPO_DIR / "output" / "(E)상호저축은행" / "신용등급_전체80개사.csv"
@@ -298,14 +303,14 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     if cr_full.empty:
         return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
 
-    js_data = build_sector_js_data(cr_full, company_order, metrics=CR_METRICS)
+    js_data = build_sector_js_data(cr_full, company_order, metrics=CR_METRICS + CR_BAR_ONLY_METRICS)
     js_data["nameSuffix"] = SECTOR_NAME_SUFFIX.get(sector, "")
     rated = load_rated_companies(company_order)
     js_data["rated"] = rated
     data_script = (f'<script type="application/json" id="data-{sector_key}">'
                     f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
 
-    metric_options = "".join(f'<option value="{m}">{m}</option>' for m in CR_METRICS)
+    metric_options = "".join(f'<option value="{m}">{m}</option>' for m in CR_METRICS + CR_BAR_ONLY_METRICS)
     quarter_options = "".join(
         f'<option value="{q}"{" selected" if i == len(js_data["quarters"]) - 1 else ""}>{q}</option>'
         for i, q in enumerate(js_data["quarters"])
@@ -315,6 +320,7 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     default_company = listed[0] if listed else ""
     bar_note = (f'<p class="caption">신평사 유효등급 보유 {len(rated)}개사 기준이에요 (2026.6월 기준). '
                 '회사 선택 검색창에서는 그 외 회사도 검색해서 볼 수 있어요.</p>') if rated else ""
+    bar_note += f'<p class="caption">{CR_BAR_NOTE}</p>'
 
     bar_section = (
         '<h4>회사별 지표 비교</h4>'

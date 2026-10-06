@@ -71,6 +71,15 @@ def extract_exact(long_df: pd.DataFrame, table_name: str, gubun_exact: str, out_
     return out.rename(columns={"값": out_name})
 
 
+def _next_quarter(yyyymm) -> int:
+    """다음 분기 라벨(YYYYMM) - 전분기말 값을 당분기 행에 붙일 때 사용."""
+    y, m = divmod(int(yyyymm), 100)
+    m += 3
+    if m > 12:
+        y, m = y + 1, m - 12
+    return y * 100 + m
+
+
 def build_credit_rating_table(long_df: pd.DataFrame) -> pd.DataFrame:
     """신평사 평가요소표(사업위험/재무위험) 기준 핵심 지표 테이블.
 
@@ -96,7 +105,21 @@ def build_credit_rating_table(long_df: pd.DataFrame) -> pd.DataFrame:
     out = out.merge(coverage, on=["금융회사명", "년월"], how="outer")
     out = out.merge(bis_ratio, on=["금융회사명", "년월"], how="outer")
     out = out.merge(liquidity_ratio, on=["금융회사명", "년월"], how="outer")
+
+    loan_interest = extract_exact(long_df, "요약손익계산서", "이자수익_대출금이자", "대출이자수익")
+    loans = extract_exact(long_df, "요약재무상태표(자산)", "대출채권", "대출채권")
+    out = out.merge(loan_interest, on=["금융회사명", "년월"], how="outer")
+    out = out.merge(loans, on=["금융회사명", "년월"], how="outer")
     out = out.sort_values(["금융회사명", "년월"]).reset_index(drop=True)
+
+    # 대출이자수익률 = 연환산(x4) 당분기 대출금이자수익 / 대출채권 분기 평잔 (당분기말과 직전 분기말 평균)
+    prev = out[["금융회사명", "년월", "대출채권"]].copy()
+    prev["년월"] = prev["년월"].map(_next_quarter)
+    prev = prev.rename(columns={"대출채권": "전분기말대출채권"})
+    out = out.merge(prev, on=["금융회사명", "년월"], how="left")
+    avg_loans = (out["대출채권"] + out["전분기말대출채권"]) / 2
+    out["대출이자수익률"] = out["대출이자수익"] * 4 / avg_loans * 100
+    out = out.drop(columns=["전분기말대출채권"])
 
     out["충당금적립전영업이익률"] = (out["영업이익"] + out["대손상각비"]) / out["총자산평잔"] * 100
 
