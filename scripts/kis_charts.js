@@ -107,6 +107,8 @@ function kisRenderVisible() {
     if (el.dataset.v === String(KIS.version)) return;           // 이미 최신
     el.dataset.v = String(KIS.version);
     if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
+    if (el.dataset.cmp) { kisRenderCmp(el, ser, idx); return; }
+    if (el.dataset.dist) { kisRenderDist(el, ser, idx); return; }
     var key = el.dataset.key, y = ser[key];
     if (!y) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
     // 데이터가 시작되기 전(앞쪽 빈 구간)은 잘라서 차트 폭을 낭비하지 않음
@@ -163,5 +165,78 @@ function kisRenderMulti(el, ser, idx) {
     xaxis: kisXAxis(x.length),
     yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
     legend: {orientation: 'h', y: -0.32}
+  }, {displaylogo: false, responsive: true});
+}
+
+function kisShort(name) { return name.replace('저축은행', ''); }
+
+// 선택 회사(실선) vs 업권 전체(점선) 구성비 추이 비교
+function kisRenderCmp(el, ser, idx) {
+  var specs = JSON.parse(el.dataset.cmp), all = KIS.d.series[KIS.d.allLabel] || {};
+  var isAll = KIS.company === KIS.d.allLabel;
+  var firstOk = idx.length;
+  specs.forEach(function(sp){
+    [ser, all].forEach(function(src){
+      if (!src[sp.k]) return;
+      var j = 0;
+      while (j < idx.length && (src[sp.k][idx[j]] === null || src[sp.k][idx[j]] === undefined)) j++;
+      if (j < firstOk) firstOk = j;
+    });
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var traces = [];
+  specs.forEach(function(sp){
+    if (!isAll && ser[sp.k]) {
+      traces.push({x: x, y: idxC.map(function(i){ return ser[sp.k][i]; }), type: 'scatter', mode: 'lines+markers',
+                   name: sp.n + ' · ' + kisShort(KIS.company), legendgroup: sp.k, connectgaps: true,
+                   line: {color: sp.c, width: 2.4}, marker: {size: 5},
+                   hovertemplate: '%{x}<br>' + kisShort(KIS.company) + ' ' + sp.n + ' %{y:.1f}%<extra></extra>'});
+    }
+    if (all[sp.k]) {
+      traces.push({x: x, y: idxC.map(function(i){ return all[sp.k][i]; }), type: 'scatter', mode: 'lines',
+                   name: sp.n + (isAll ? '' : ' · 업권 전체'), legendgroup: sp.k, connectgaps: true,
+                   line: {color: sp.c, width: 2, dash: isAll ? 'solid' : 'dot'},
+                   hovertemplate: '%{x}<br>업권 전체 ' + sp.n + ' %{y:.1f}%<extra></extra>'});
+    }
+  });
+  plotReact(el.id, traces, {
+    height: 352, margin: {t: 10, b: 130, l: 60, r: 10}, xaxis: kisXAxis(x.length),
+    yaxis: {ticksuffix: '%'}, legend: {orientation: 'h', y: -0.4, font: {size: 10}}
+  }, {displaylogo: false, responsive: true});
+}
+
+// 기준 분기(선택 기간의 마지막) 구성 분포: 업권 전체 vs 선택 회사 (100% 누적 막대)
+function kisRenderDist(el, ser, idx) {
+  var specs = JSON.parse(el.dataset.dist), all = KIS.d.series[KIS.d.allLabel] || {};
+  var isAll = KIS.company === KIS.d.allLabel;
+  var ents = [{name: '업권 전체', s: all}];
+  if (!isAll) ents.push({name: kisShort(KIS.company), s: ser});
+  var qi = -1;
+  for (var j = idx.length - 1; j >= 0 && qi < 0; j--) {
+    var okAll = ents.every(function(e){
+      return specs.some(function(sp){ return e.s[sp.k] && e.s[sp.k][idx[j]] !== null && e.s[sp.k][idx[j]] !== undefined; });
+    });
+    if (okAll) qi = idx[j];
+  }
+  if (qi < 0) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var totals = ents.map(function(e){
+    return specs.reduce(function(sum, sp){ var v = e.s[sp.k] ? e.s[sp.k][qi] : null; return sum + (v > 0 ? v : 0); }, 0);
+  });
+  var traces = specs.map(function(sp){
+    var pct = ents.map(function(e, n){
+      var v = e.s[sp.k] ? e.s[sp.k][qi] : null;
+      return (v > 0 && totals[n]) ? v / totals[n] * 100 : 0;
+    });
+    return {type: 'bar', x: ents.map(function(e){ return e.name; }), y: pct, name: sp.n, marker: {color: sp.c},
+            text: pct.map(function(p){ return p >= 4 ? sp.n + ' ' + p.toFixed(1) + '%' : ''; }),
+            textposition: 'inside', insidetextanchor: 'middle', textfont: {size: 10},
+            hovertemplate: '%{x}<br>' + sp.n + ' %{y:.1f}%<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    barmode: 'stack', height: 352, margin: {t: 28, b: 40, l: 50, r: 10}, showlegend: false,
+    title: {text: KIS.d.quarters[qi] + ' 기준', font: {size: 12}, x: 0.02},
+    yaxis: {range: [0, 100], ticksuffix: '%'}
   }, {displaylogo: false, responsive: true});
 }

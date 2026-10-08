@@ -260,6 +260,11 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     for k, d in bw.items():
         add_sum(k, d)
         add_ratio(k + "_sh", d, loan_sum)
+    add_ratio("bw_secx_sh", g("SE021", "A") - fill0(g("SE021", "A2")), loan_sum)   # 담보 중 부동산 외(예적금 등)
+    ind_total = g("SE036", "A")
+    for k, code in (("ind_mfg", "A1"), ("ind_cons", "A2"), ("ind_trade", "A3"), ("ind_trans", "A4"),
+                    ("ind_food", "A5"), ("ind_re", "A6"), ("ind_etc", "A7")):
+        add_ratio(k + "_sh", g("SE036", code), ind_total)                           # 기업대출금 내 업종 비중
 
     # ---------------- 자본적정성
     rwa = g("SE016", "F")
@@ -356,20 +361,35 @@ SECTIONS = {
         ("aq_subr", "고정이하여신비율", "%", "line", None),
         ("aq_cov", "대손충당금/고정이하여신", "%", "line", None),
     ])],
-    # 여러 선을 한 차트에 그리는 항목: ("차트id", 제목, 단위, "multi", [(시리즈키, 이름, 색), ...])
+    # 특수 차트: "multi"=여러 선, "cmp"=선택 회사(실선) vs 업권 전체(점선) 추이, "dist"=기준 분기 구성 분포 비교(100% 누적 막대),
+    # "empty"=빈 칸. extra에 [(시리즈키, 이름, 색), ...]
     "borrower": [(None, [
         ("mc_b_amt", "차주별 대출채권 추이", "억원", "multi",
          [("bw_corp", "기업자금대출", "#F5B301"), ("bw_hh", "가계자금대출", "#E8312F"), ("bw_pub", "공공 및 기타", "#A6A6A6")]),
         ("mc_c_amt", "담보별 대출채권 추이", "억원", "multi",
          [("bw_sec", "담보", "#2E75B6"), ("bw_re", "부동산 담보", "#E8312F"), ("bw_guar", "보증", "#A6A6A6"), ("bw_cred", "신용", "#F5B301")]),
+        ("empty1", "", "", "empty", None),
         ("mc_b_sh1", "차주별 대출채권 구성비중 추이", "%", "multi",
          [("bw_corp_sh", "기업자금대출", "#111111"), ("bw_sme_sh", "중소기업대출", "#E8312F"), ("bw_indiv_sh", "개인사업자", "#F5B301"),
           ("bw_hh_sh", "가계자금대출", "#2E75B6"), ("bw_pub_sh", "공공 및 기타", "#A6A6A6")]),
         ("mc_b_sh2", "차주별 대출채권 구성비중 추이(요약)", "%", "multi",
          [("bw_corp_sh", "기업자금대출", "#111111"), ("bw_hh_sh", "가계자금대출", "#2E75B6"), ("bw_pub_sh", "공공 및 기타", "#A6A6A6")]),
+        ("cmp_b", "차주별 구성비중: 선택 회사 vs 업권 전체", "%", "cmp",
+         [("bw_corp_sh", "기업자금대출", "#111111"), ("bw_hh_sh", "가계자금대출", "#2E75B6"), ("bw_pub_sh", "공공 및 기타", "#A6A6A6")]),
         ("mc_c_sh", "담보별 구성비 추이", "%", "multi",
          [("bw_sec_sh", "담보", "#2E75B6"), ("bw_re_sh", "부동산 담보", "#E8312F"), ("bw_guar_sh", "보증", "#A6A6A6"), ("bw_cred_sh", "신용", "#F5B301")]),
+        ("dist_c", "담보별 구성 분포: 선택 회사 vs 업권 전체", "%", "dist",
+         [("bw_re_sh", "부동산 담보", "#E8312F"), ("bw_secx_sh", "기타 담보", "#2E75B6"), ("bw_guar_sh", "보증", "#A6A6A6"),
+          ("bw_cred_sh", "신용", "#F5B301"), ("bw_etc_sh", "기타", "#D9D9D9")]),
+        ("cmp_c", "담보별 구성비: 선택 회사 vs 업권 전체", "%", "cmp",
+         [("bw_sec_sh", "담보", "#2E75B6"), ("bw_re_sh", "부동산 담보", "#E8312F"), ("bw_guar_sh", "보증", "#A6A6A6"), ("bw_cred_sh", "신용", "#F5B301")]),
         ("mc_i_sh", "업종별 구성비 추이", "%", "multi",
+         [("bw_cons_sh", "건설업", "#2E75B6"), ("bw_realty_sh", "부동산업", "#ED7D31")]),
+        ("dist_i", "기업대출금 업종 분포: 선택 회사 vs 업권 전체", "%", "dist",
+         [("ind_mfg_sh", "제조업", "#2E75B6"), ("ind_cons_sh", "건설업", "#9DC3E6"), ("ind_trade_sh", "도매 및 소매업", "#F5B301"),
+          ("ind_trans_sh", "운수 및 창고업", "#70AD47"), ("ind_food_sh", "숙박 및 음식점업", "#ED7D31"),
+          ("ind_re_sh", "부동산업", "#E8312F"), ("ind_etc_sh", "기타", "#D9D9D9")]),
+        ("cmp_i", "업종별 구성비: 선택 회사 vs 업권 전체", "%", "cmp",
          [("bw_cons_sh", "건설업", "#2E75B6"), ("bw_realty_sh", "부동산업", "#ED7D31")]),
     ])],
     "capital": [(None, [
@@ -433,9 +453,11 @@ def render_kis_block(tab_label: str) -> str:
                 parts.append(f'<h5 style="margin:18px 0 4px;color:var(--muted);">{group_title}</h5>')
             def cell(key, name, unit, kind, extra):
                 multi = ""
-                if kind == "multi":
+                if kind == "empty":
+                    return '<div class="cell"></div>'
+                if kind in ("multi", "cmp", "dist"):
                     spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
-                    multi = f" data-multi='{json.dumps(spec, ensure_ascii=False)}'"
+                    multi = f" data-{kind}='{json.dumps(spec, ensure_ascii=False)}'"
                     extra = ""
                 return (
                     f'<div class="cell"><div class="kis-title">{name} <span>({unit})</span></div>'

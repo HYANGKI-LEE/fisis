@@ -422,7 +422,7 @@ def render_scatter_section(sector: str) -> str:
         r2 = float(np.corrcoef(x, df[col])[0, 1] ** 2)
         fits[col] = (slope, icpt, r2)
 
-    navy, blue = "#1F3864", "#2E75B6"
+    navy, blue = "#1F3864", "#E8312F"   # 경상이익률 남색 / 대손비용률 빨강
     year, q = qlabel.split(".Q")
     x_label = f"{year}.{q}Q"
     ya = fits["경상이익률"][0] * xs + fits["경상이익률"][1]
