@@ -47,7 +47,7 @@ DEFAULT_COLUMNS = 3
 SECTION_TITLES = {
     "bs": "재무상태표 (단위: 억원)",
     "is": "손익계산서 (단위: 억원, 당분기)",
-    "profit": "수익성 (단위: %, 분기 연율화)",
+    "profit": "수익성 추이 (비율은 분기 연율화)",
     "asset": "자산건전성 (단위: 억원 / %)",
     "borrower": "차주별 원화대출금 (잔액: 억원, 구성비: %)",
     "capital": "자본적정성",
@@ -232,6 +232,15 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     add_ratio("dc_fee", fee * ann, avg_asset)
     add_ratio("dc_sga", -sga * ann, avg_asset)
     add_ratio("dc_prov", -prov_img * ann, avg_asset)
+    # 수익성 표의 연도 열용(최근 4개 분기 합계 / 기초~기말 5개 분기말 평균)
+    earn_avg5 = earn_assets.T.rolling(5, min_periods=1).mean().T
+    add_sum("pf_avg5", avg5)
+    add_ratio("pf_ppop4", ltm(op + prov_exp), avg5)
+    add_ratio("pf_nim4", ltm(interest), earn_avg5)
+    add_ratio("pf_prov4", ltm(prov_cost), avg5)
+    add_ratio("pf_sga4", ltm(sga), avg5)
+    asset4 = asset.shift(4, axis=1)
+    add_ratio("bs_asset_yoy", asset - asset4, asset4)      # 총자산 증감률(YoY)
     avg_equity = (equity + lag(equity)) / 2
     add_ratio("pf_roe", ni * ann, avg_equity)
 
@@ -247,6 +256,8 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     add_ratio("aq_overr", overdue, g("SE019", "C2"))
     add_ratio("aq_subr", substd, tot_loan)
     add_ratio("aq_cov", allow, substd)
+    loan4 = tot_loan.shift(4, axis=1)
+    add_ratio("aq_loan_yoy", tot_loan - loan4, loan4)       # 총여신 증감률(YoY)
 
     # ---------------- 차주별 원화대출금 (+ 대출금 합계 대비 비중)
     loan_sum = g("SE020", "D")
@@ -283,7 +294,9 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     add_ratio("lq_ratio", g("SE011", "A1"), g("SE011", "A2"))
 
     # ---------------- 회사별 / 업권 전체 시계열
-    series: dict[str, dict] = {c: {} for c in companies + [ALL_LABEL]}
+    rated_cos = [c for c in companies if c in set(rated)]
+    rated_label = f"신평사 유효등급 {len(rated_cos)}개사"
+    series: dict[str, dict] = {c: {} for c in companies + [ALL_LABEL, rated_label]}
 
     def to_list(row):
         return [None if (v is None or not np.isfinite(v)) else round(float(v), 3) for v in row]
@@ -292,11 +305,15 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
         if m["kind"] == "sum":
             per = m["df"].reindex(companies)
             agg = per.sum(min_count=1)
+            agg_r = per.loc[rated_cos].sum(min_count=1)
         else:
             num, den = m["num"].reindex(companies), m["den"].reindex(companies)
             ok = num.notna() & den.notna() & (den != 0)
             per = (num / den.where(den != 0)) * m["mult"]
             agg = num.where(ok).sum(min_count=1) / den.where(ok).sum(min_count=1) * m["mult"]
+            ok_r = ok.loc[rated_cos]
+            agg_r = (num.loc[rated_cos].where(ok_r).sum(min_count=1)
+                     / den.loc[rated_cos].where(ok_r).sum(min_count=1) * m["mult"])
         for c in companies:
             vals = to_list(per.loc[c].to_numpy())
             if any(v is not None for v in vals):
@@ -304,12 +321,16 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
         vals = to_list(agg.to_numpy())
         if any(v is not None for v in vals):
             series[ALL_LABEL][key] = vals
+        vals = to_list(agg_r.to_numpy())
+        if any(v is not None for v in vals):
+            series[rated_label][key] = vals
 
     asset_latest = base[cal[-1]].fillna(0)
     companies_sorted = sorted(companies, key=lambda c: -asset_latest.get(c, 0))
     return {
         "quarters": [format_ym(int(q)) for q in cal],
         "allLabel": ALL_LABEL,
+        "ratedLabel": rated_label,
         "companies": [ALL_LABEL] + companies_sorted,
         "rated": [ALL_LABEL] + [c for c in companies_sorted if c in rated],
         "series": {k: v for k, v in series.items() if v},
@@ -349,13 +370,19 @@ SECTIONS = {
         ("is_nonop", "영업외이익", "억원", "bar", None),
         ("is_ni", "당기순이익", "억원", "bar", None),
     ])],
+    # 수익성: 1열 총자산/총여신(막대+YoY), 2열 ROA/PPOP, 3열 NIM/대손비용률/판관비율 (선택 회사 vs 업권 전체 vs 유효등급 보유사)
     "profit": [(None, [
-        ("pf_avg", "총자산 평잔", "억원", "bar", None),
-        ("pf_roa", "총자산이익률(ROA)", "%", "line", None),
-        ("pf_ppop", "PPOP/총자산평잔", "%", "line", None),
-        ("pf_nim", "순이자마진(NIM)", "%", "line", None),
-        ("pf_prov", "대손비용률", "%", "line", None),
-        ("pf_sga", "판관비율", "%", "line", None),
+        ("pf_c_asset", "총자산 추이 및 증감률(YoY)", "억원 / %", "dual",
+         {"bar": "bs_asset", "line": "bs_asset_yoy", "bn": "총자산", "ln": "증감률(YoY)"}),
+        ("pf_c_roa", "총자산이익률(ROA)", "%", "cmp3", {"k": "pf_roa"}),
+        ("pf_c_nim", "순이자마진(NIM)", "%", "cmp3", {"k": "pf_nim"}),
+        ("pf_c_loan", "총여신 추이 및 증감률(YoY)", "억원 / %", "dual",
+         {"bar": "aq_loan", "line": "aq_loan_yoy", "bn": "총여신", "ln": "증감률(YoY)"}),
+        ("pf_c_ppop", "PPOP/총자산평잔", "%", "cmp3", {"k": "pf_ppop"}),
+        ("pf_c_prov", "대손비용률", "%", "cmp3", {"k": "pf_prov"}),
+        ("e_pf1", "", "", "empty", None),
+        ("e_pf2", "", "", "empty", None),
+        ("pf_c_sga", "판관비율", "%", "cmp3", {"k": "pf_sga"}),
     ])],
     "asset": [(None, [
         ("aq_loan", "총여신", "억원", "bar", None),
@@ -420,18 +447,44 @@ SECTIONS = {
     ])],
 }
 
+# 차트 바로 아래에 붙는 설명 (시리즈 키 -> 문구)
+CHART_NOTES = {
+    "pf_c_asset": "총자산 = 분기말 자산총계, 증감률은 4분기 전(전년 동기) 대비예요.",
+    "pf_c_loan": "총여신은 FISIS 여신건전성 통계의 총여신, 증감률은 4분기 전(전년 동기) 대비예요.",
+    "pf_c_roa": "ROA = 당기순이익(당분기) ×4 ÷ 총자산 분기 평잔((당분기말+직전 분기말)/2). 회사를 고르면 업권 전체·신평사 유효등급 보유사 합산과 비교해요.",
+    "pf_c_ppop": "PPOP/총자산평잔 = (영업이익+대손상각비)(당분기) ×4 ÷ 총자산 분기 평잔. 2016.Q1부터 가능해요.",
+    "pf_c_nim": "순이자마진(NIM) = (이자수익-이자비용) ×4 ÷ 이자수익자산(현금및예치금+유가증권+대출채권+미수금+미수수익) 분기 평잔.",
+    "pf_c_prov": "대손비용률 = 대손비용(대손상각비+대출채권관련손실-대손충당금환입-대출채권관련수익) ×4 ÷ 총자산 분기 평잔. 2016.Q1부터 가능해요.",
+    "pf_c_sga": "판관비율 = 판매비와관리비 ×4 ÷ 총자산 분기 평잔.",
+    "is_total": "Data Package 표에서 총영업이익은 영업이익과 같은 값이라 같은 값으로 그렸어요.",
+    "is_sec": "유가증권관련이익 = 유가증권관련수익 - 유가증권관련비용.",
+    "is_oth": "기타영업이익 = 기타수익 - 기타비용(대손상각비 포함).",
+    "aq_overr": "연체율 = 연체액 ÷ 총여신.",
+    "aq_subr": "고정이하여신비율 = 고정이하여신 ÷ 총여신.",
+    "aq_cov": "대손충당금/고정이하여신 = 대손충당금적립잔액 ÷ 고정이하분류여신.",
+    "cp_bis": "BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산.",
+    "cp_lev": "레버리지배율 = 자산총계 ÷ 자본총계.",
+}
+
+# 섹션 전체에 해당하는 설명은 섹션 맨 아래에 붙는다
 SECTION_NOTES = {
-    "is": "Data Package 표에서 총영업이익은 영업이익과 같은 값이라 같은 값으로 그렸어요. 기타영업이익 = 기타수익 - 기타비용(대손상각비 포함), "
-          "유가증권관련이익 = 유가증권관련수익 - 유가증권관련비용이에요.",
-    "profit": "ROA·PPOP/총자산평잔·판관비율·대손비용률은 (당분기 금액 ×4) ÷ 총자산 분기 평잔((당분기말+직전 분기말)/2), "
-              "NIM = (이자수익-이자비용) ×4 ÷ 이자수익자산(현금및예치금+유가증권+대출채권+미수금+미수수익) 분기 평잔, "
-              "대손비용률 = (대손상각비+대출채권관련손실-대손충당금환입-대출채권관련수익) ×4 ÷ 총자산 평잔이에요.",
-    "asset": "연체율 = 연체액/총여신, 고정이하여신비율 = 고정이하여신/총여신, 대손충당금/고정이하여신 = 대손충당금적립잔액/고정이하분류여신이에요.",
-    "capital": "레버리지배율 = 자산총계 ÷ 자본총계, BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산이에요.",
     "borrower": "구성비 = 각 항목 ÷ 대출금 합계(용도별 대출). 부동산 담보는 담보의 일부예요. 업종별 구성은 2018.Q4부터 공시돼요. "
                 "맨 아래 산점도의 신용대출은 담보별 대출의 '신용'(기업·가계 신용대출 합계) 비중이에요. 업종 관련 차트는 분모가 달라요: 구성비 추이·산점도는 대출금 합계 대비, "
                 "업종 분포 차트는 기업대출금 대비예요(2018.Q4부터 공시, 기업대출금 비중 × 업종 비중 = 대출금 합계 대비 비중).",
 }
+
+PROFIT_TABLE_NOTE = (
+    "주1) 순이자마진(NIM) = (이자수익-이자비용)/이자수익자산(현금및예치금+유가증권+대출채권+미수금+미수수익)평잔 "
+    "&nbsp; 2) 대손비용률 = 대손비용(대손상각비+대출채권관련손실-대손충당금환입-대출채권관련수익)/총자산평잔 "
+    "&nbsp; 3) 판관비율 = 판매비와관리비/총자산평잔. "
+    "연도(12월) 열은 최근 4개 분기 합계 ÷ 기초~기말 분기말 평균 평잔, 4분기 전·당분기 열은 해당 분기 값을 연율화(×4)한 값이에요. "
+    "대손비용률·PPOP는 2016.Q1부터 가능해서 그 이전 연도는 비어 있어요.")
+
+
+def render_profit_table() -> str:
+    """수익성 탭 맨 위 표 (내용은 JS가 선택 회사에 맞춰 채움)."""
+    return ('<div class="kis-table-wrap"><table class="kis-table" id="kisProfitTable"><thead></thead><tbody></tbody></table></div>'
+            f'<p class="caption">{PROFIT_TABLE_NOTE}</p>')
 
 
 def render_kis_controls() -> str:
@@ -463,33 +516,38 @@ def render_kis_block(tab_label: str) -> str:
     parts = ['<hr style="border:none;border-top:1px solid var(--border);margin:28px 0 8px;">',
              '<p class="caption">아래는 저축은행 Data Package(한국신용평가 양식) 항목이에요. 회사와 기간은 모든 탭에 공통 적용돼요.</p>',
              render_kis_controls()]
+    if tab_label == "수익성":
+        parts.append('<h4>수익성 (단위: %, 총자산 평잔: 억원)</h4>' + render_profit_table())
+
+    def cell(key, name, unit, kind, extra):
+        if kind == "empty":
+            return '<div class="cell"></div>'
+        attrs = ""
+        if kind in ("scatter", "dual", "cmp3"):
+            attrs = f" data-{kind}='{json.dumps(extra, ensure_ascii=False)}'"
+            extra = ""
+        elif kind in ("multi", "cmp", "dist"):
+            spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
+            attrs = f" data-{kind}='{json.dumps(spec, ensure_ascii=False)}'"
+            extra = ""
+        note = CHART_NOTES.get(key) or ""
+        note_html = f'<p class="caption kis-note">{note}</p>' if note else ""
+        return (
+            f'<div class="cell"><div class="kis-title">{name} <span>({unit})</span></div>'
+            f'<div id="kis-{key}" class="plotly-chart kis-chart" data-key="{key}" data-type="{kind}" '
+            f'data-name="{name}" data-unit="{unit}" data-share="{extra or ""}"{attrs}></div>{note_html}</div>'
+        )
+
     for sec in sections:
         parts.append(f'<h4>{SECTION_TITLES[sec]}</h4>')
-        if sec in SECTION_NOTES:
-            parts.append(f'<p class="caption">{SECTION_NOTES[sec]}</p>')
         for group_title, items in SECTIONS[sec]:
             if group_title:
                 parts.append(f'<h5 style="margin:18px 0 4px;color:var(--muted);">{group_title}</h5>')
-            def cell(key, name, unit, kind, extra):
-                multi = ""
-                if kind == "empty":
-                    return '<div class="cell"></div>'
-                if kind == "scatter":
-                    multi = f" data-scatter='{json.dumps(extra, ensure_ascii=False)}'"
-                    extra = ""
-                if kind in ("multi", "cmp", "dist"):
-                    spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
-                    multi = f" data-{kind}='{json.dumps(spec, ensure_ascii=False)}'"
-                    extra = ""
-                return (
-                    f'<div class="cell"><div class="kis-title">{name} <span>({unit})</span></div>'
-                    f'<div id="kis-{key}" class="plotly-chart kis-chart" data-key="{key}" data-type="{kind}" '
-                    f'data-name="{name}" data-unit="{unit}" data-share="{extra or ""}"{multi}></div></div>'
-                )
-
             cells = "".join(cell(*it) for it in items)
             cols = TAB_COLUMNS.get(tab_label, DEFAULT_COLUMNS)
             parts.append(f'<div class="grid" style="grid-template-columns:repeat({cols},1fr);">{cells}</div>')
+        if sec in SECTION_NOTES:
+            parts.append(f'<p class="caption">{SECTION_NOTES[sec]}</p>')
     return "".join(parts)
 
 

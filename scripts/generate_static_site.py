@@ -275,8 +275,8 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         '<div class="control-row"><label>기준 분기 '
         f'<select id="quarterSelect-{sector_key}" onchange="onQuarterChange(\'{sector_key}\')">'
         f'{quarter_options}</select></label></div>'
-        f'{bar_note}'
         f'<div id="barChart-{sector_key}" class="plotly-chart"></div>'
+        f'{bar_note}'
     )
 
     trend_section = (
@@ -498,7 +498,8 @@ def render_scatter_section(sector: str) -> str:
     )
 
 
-def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str]) -> str:
+def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, company_order: list[str],
+                             kis_payload: dict | None = None) -> str:
     long_df = load_sector_long(sector)
     cr = build_credit_rating_table(long_df)
     cr_full = cr  # ROA도 build_credit_rating_table에서 분기 연율화로 계산
@@ -523,7 +524,7 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     default_company = listed[0] if listed else ""
     bar_note = (f'<p class="caption">신평사 유효등급 보유 {len(rated)}개사 기준이에요 (2026.6월 기준). '
                 '회사 선택 검색창에서는 그 외 회사도 검색해서 볼 수 있어요.</p>') if rated else ""
-    bar_note += f'<p class="caption">{CR_BAR_NOTE}</p>'
+    bar_note += f'<p class="caption">{CR_BAR_NOTE}</p>' + CR_NOTE
 
     bar_section = (
         '<h4>회사별 지표 비교</h4>'
@@ -533,8 +534,8 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
         '<label>기준 분기 '
         f'<select id="crQuarterSelect-{sector_key}" onchange="onCrChange(\'{sector_key}\')">{quarter_options}</select></label>'
         '</div>'
-        f'{bar_note}'
         f'<div id="crBarChart-{sector_key}" class="plotly-chart"></div>'
+        f'{bar_note}'
     )
 
     range_btns = "".join(
@@ -570,9 +571,10 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
     )
 
     scatter_section = render_scatter_section(sector)
+    prof_section = render_profitability_tab(kis_payload, sector_key) if kis_payload else ""
 
     return (
-        CR_NOTE + data_script + bar_section + scatter_section + controls + trend_sections +
+        data_script + bar_section + scatter_section + prof_section + controls + trend_sections +
         f'<script>initCrSector("{sector_key}");</script>'
     )
 
@@ -881,9 +883,9 @@ def render_profitability_tab(kis_payload: dict, sector_key: str) -> str:
         f'<button onclick="profCustomApply(\'{scope}\')">적용</button></div>'
     )
     return (
-        '<h4>ROA와 기준금리</h4>' + note + payload + controls +
+        '<h4>ROA와 기준금리</h4>' + payload + controls +
         '<div class="grid" style="grid-template-columns:repeat(3,1fr);">'
-        f'<div class="cell"><div id="profChart-{scope}" class="plotly-chart"></div></div>'
+        f'<div class="cell"><div id="profChart-{scope}" class="plotly-chart"></div>{note}</div>'
         '<div class="cell"></div>'
         '</div>'
         f'<script>initProf("{scope}");</script>'
@@ -906,14 +908,14 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     company_order = snap_full["금융회사명"].tolist()  # 당기순이익 내림차순, 두 탭 공통 정렬 기준
     rated = load_rated_companies(company_order)
     kis_payload = kis_charts.build_kis_payload(sector, rated)
-    cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order)
+    cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order, kis_payload)
     perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full, kis_payload, rated)
 
     stmt_kind = {"손익계산서": ("is", "is"), "대차대조표": ("bs", "bs")}
     rest = [
         render_statement_tab(f"{sector_key}-{stmt_kind[lbl][0]}", sector, stmt_kind[lbl][1])
         if lbl in stmt_kind
-        else render_profitability_tab(kis_payload, sector_key) if lbl == "수익성"
+        else "" if lbl == "수익성"
         else render_placeholder_tab(lbl)
         for lbl in SAVINGS_BANK_TABS[2:]
     ]
@@ -954,6 +956,14 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; white-space:nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align:left; }
 .data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
+.kis-controls { position:sticky; top:104px; z-index:4; background:#fff; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-bottom:6px; }
+.kis-table-wrap { overflow-x:auto; margin:6px 0 2px; }
+.kis-table { width:100%; border-collapse:collapse; font-size:13px; }
+.kis-table thead th { background:#fff; border-bottom:2px solid #333; padding:7px 10px; text-align:right; white-space:nowrap; font-weight:700; }
+.kis-table thead th:first-child, .kis-table td:first-child { text-align:left; }
+.kis-table td { padding:6px 10px; text-align:right; border-bottom:1px solid #eee; white-space:nowrap; }
+.kis-table tbody tr:nth-child(odd) td { background:#fafbfd; }
+.kis-note { margin:2px 0 8px; }
 .kis-title { display:none; font-size:14px; font-weight:600; margin:10px 0 0; }
 .kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }
 .is-table td:first-child { text-align:left; }
@@ -1112,17 +1122,16 @@ function renderTrendCharts(sector) {
     }
   }
 
-  var traces = [];
-  if (s['ROE'].some(function(v){ return v !== null; }))
-    traces.push({x:quarters, y:pick(s['ROE']), mode:'lines+markers', name:'ROE', connectgaps:true,
-                 line:{color:'#2980B9'}, yaxis:'y'});
+  // 당기순이익(막대, 좌축, 억원) + ROA(선, 우축, %)
+  var niEok = pick(s['당기순이익']).map(function(v){ return v === null ? null : v / 1e8; });
+  var traces = [{x:quarters, y:niEok, type:'bar', name:'당기순이익(좌)', marker:{color:'#2980B9'}, yaxis:'y',
+                 hovertemplate:'%{x}<br>당기순이익 %{y:,.0f}억원<extra></extra>'}];
   if (s['ROA'].some(function(v){ return v !== null; }))
-    traces.push({x:quarters, y:pick(s['ROA']), mode:'lines+markers', name:'ROA', connectgaps:true,
-                 line:{color:'#E67E22'}, yaxis:'y2'});
+    traces.push({x:quarters, y:pick(s['ROA']), mode:'lines', name:'ROA(우)', connectgaps:true,
+                 line:{color:'#E8312F', width:2.6}, yaxis:'y2', hovertemplate:'%{x}<br>ROA %{y:.2f}%<extra></extra>'});
   plotReact('trendRoaRoe-' + sector, traces, {
-    height:360, margin:{t:40, r:50}, title:company + ' ROA / ROE 추이',
-    yaxis:{title:'ROE(%)'}, yaxis2:{title:'ROA(%)', overlaying:'y', side:'right'},
-    legend:{orientation:'h', y:-0.2}
+    height:360, margin:{t:40, r:50}, title:company + ' 당기순이익 / ROA 추이',
+    yaxis:{title:'당기순이익(억원)', tickformat:','}, yaxis2:{title:'ROA(%)', overlaying:'y', side:'right', showgrid:false}
   }, {displaylogo:false, responsive:true});
 }
 
@@ -1362,12 +1371,14 @@ function renderCrTrend(sector, i, metric) {
     emptyChartMsg(elId, '이 기간엔 ' + metric + ' 데이터가 없어요.');
     return;
   }
-  plotReact(elId, [
-    {x:quarters, y:avgVals, mode:'lines+markers', connectgaps:true, name:'업권 평균',
-     line:{color:'#999', dash:'dot'}},
-    {x:quarters, y:companyVals, mode:'lines+markers', connectgaps:true, name:shortName(sector, company),
-     line:{color:'#2980B9', width:2.5}}
-  ], {
+  var crTraces = [];
+  if (metric !== '총자산시장점유율') {   // 시장점유율의 업권 평균은 의미가 없어서 제외
+    crTraces.push({x:quarters, y:avgVals, mode:'lines+markers', connectgaps:true, name:'업권 평균',
+                   line:{color:'#999', dash:'dot'}});
+  }
+  crTraces.push({x:quarters, y:companyVals, mode:'lines+markers', connectgaps:true, name:shortName(sector, company),
+                 line:{color:'#2980B9', width:2.5}});
+  plotReact(elId, crTraces, {
     height:320, margin:{t:20}, yaxis:{title:metric + ' (%)'}, legend:{orientation:'h', y:-0.2}
   }, {displaylogo:false, responsive:true});
 }

@@ -107,6 +107,8 @@ function kisIndices() {
 // 보이는(활성 탭의) 차트만 그리고, 회사/기간이 바뀌면(version) 다시 그림
 function kisRenderVisible() {
   if (!kisInit()) return;
+  kisStickyOffset();
+  kisRenderTable();
   var idx = kisIndices();
   var ser = KIS.d.series[KIS.company] || {};
   document.querySelectorAll('.kis-chart').forEach(function(el){
@@ -115,6 +117,8 @@ function kisRenderVisible() {
     el.dataset.v = String(KIS.version);
     if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
     if (el.dataset.scatter) { kisRenderScatter(el, idx); return; }
+    if (el.dataset.cmp3) { kisRenderCmp3(el, ser, idx); return; }
+    if (el.dataset.dual) { kisRenderDual(el, ser, idx); return; }
     if (el.dataset.cmp) { kisRenderCmp(el, ser, idx); return; }
     if (el.dataset.dist) { kisRenderDist(el, ser, idx); return; }
     var key = el.dataset.key, y = ser[key];
@@ -294,4 +298,101 @@ function kisRenderScatter(el, idx) {
     yaxis: {title: cfg.yl, ticksuffix: '%'},
     legend: {}
   }, {displaylogo: false, responsive: true});
+}
+
+// 회사/기간 선택줄을 스크롤해도 맨 위(제목+탭바 아래)에 고정
+function kisStickyOffset() {
+  var h = document.querySelector('.page.active h1'), panel = document.querySelector('.page.active .tab-panel.active'),
+      tb = panel && panel.parentElement.querySelector('.tab-bar');
+  if (!h || !tb) return;
+  var top = (parseInt(getComputedStyle(tb).top, 10) || h.offsetHeight) + tb.offsetHeight;   // 탭바의 sticky top + 탭바 높이
+  document.querySelectorAll('.kis-controls').forEach(function(c){ c.style.top = top + 'px'; });
+}
+window.addEventListener('resize', function(){ if (KIS) kisStickyOffset(); });
+
+// 선택 회사 vs 업권 전체 vs 신평사 유효등급 보유사 비교 추이
+function kisRenderCmp3(el, ser, idx) {
+  var cfg = JSON.parse(el.dataset.cmp3), k = cfg.k, S = KIS.d.series;
+  var all = S[KIS.d.allLabel] || {}, rated = S[KIS.d.ratedLabel] || {};
+  var isAll = KIS.company === KIS.d.allLabel;
+  var sources = [];
+  if (!isAll) sources.push({name: kisShort(KIS.company), s: ser, color: '#2980B9', width: 2.8, dash: 'solid'});
+  sources.push({name: '업권 전체', s: all, color: '#555555', width: 2.2, dash: 'dot'});
+  sources.push({name: KIS.d.ratedLabel, s: rated, color: '#ED7D31', width: 2.2, dash: 'dash'});
+  sources = sources.filter(function(src){ return src.s[k]; });
+  var firstOk = idx.length;
+  sources.forEach(function(src){
+    var j = 0;
+    while (j < idx.length && (src.s[k][idx[j]] === null || src.s[k][idx[j]] === undefined)) j++;
+    if (j < firstOk) firstOk = j;
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var traces = sources.map(function(src){
+    return {x: x, y: idxC.map(function(i){ return src.s[k][i]; }), type: 'scatter', mode: 'lines', name: src.name, connectgaps: true,
+            line: {color: src.color, width: src.width, dash: src.dash}, hovertemplate: '%{x}<br>' + src.name + ' %{y:.2f}%<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    height: 340, margin: {t: 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+    yaxis: {ticksuffix: '%'}, legend: {}
+  }, {displaylogo: false, responsive: true});
+}
+
+// 막대(좌축, 억원) + 증감률 선(우축, %)
+function kisRenderDual(el, ser, idx) {
+  var cfg = JSON.parse(el.dataset.dual);
+  var bar = ser[cfg.bar], line = ser[cfg.line];
+  if (!bar) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
+  var firstOk = 0;
+  while (firstOk < idx.length && (bar[idx[firstOk]] === null || bar[idx[firstOk]] === undefined)) firstOk++;
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var traces = [{x: x, y: idxC.map(function(i){ return bar[i]; }), type: 'bar', name: cfg.bn, marker: {color: '#2980B9'},
+                 hovertemplate: '%{x}<br>' + cfg.bn + ' %{y:,.0f}억원<extra></extra>'}];
+  if (line) {
+    traces.push({x: x, y: idxC.map(function(i){ return line[i]; }), type: 'scatter', mode: 'lines', yaxis: 'y2', name: cfg.ln,
+                 connectgaps: true, line: {color: '#E8312F', width: 2.6}, hovertemplate: '%{x}<br>' + cfg.ln + ' %{y:.1f}%<extra></extra>'});
+  }
+  plotReact(el.id, traces, {
+    height: 340, margin: {t: 50, b: 60, l: 60, r: 45}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+    yaxis: {tickformat: ','}, yaxis2: {overlaying: 'y', side: 'right', showgrid: false, ticksuffix: '%'}, legend: {}
+  }, {displaylogo: false, responsive: true});
+}
+
+// 수익성 표: 최근 5개 연도(12월) + 4분기 전 + 당분기 (선택 회사 기준)
+var KIS_PROFIT_ROWS = [
+  {n: '총자산 평잔', u: 'eok', fy: 'pf_avg5', q: 'pf_avg'},
+  {n: '총자산이익률(ROA)', u: 'pct', fy: 'pf_roa4', q: 'pf_roa'},
+  {n: 'PPOP/총자산평잔', u: 'pct', fy: 'pf_ppop4', q: 'pf_ppop'},
+  {n: '순이자마진(NIM)', u: 'pct', fy: 'pf_nim4', q: 'pf_nim'},
+  {n: '대손비용률', u: 'pct', fy: 'pf_prov4', q: 'pf_prov'},
+  {n: '판관비율', u: 'pct', fy: 'pf_sga4', q: 'pf_sga'}
+];
+function kisQLabel(q) {   // '2026.Q2' -> '2026.06'
+  var m = q.match(/^(\d{4})\.Q(\d)$/);
+  return m ? m[1] + '.' + ('0' + (parseInt(m[2], 10) * 3)).slice(-2) : q;
+}
+function kisRenderTable() {
+  var tb = document.getElementById('kisProfitTable');
+  if (!tb || tb.offsetParent === null || tb.dataset.v === String(KIS.version)) return;
+  tb.dataset.v = String(KIS.version);
+  var q = KIS.d.quarters, L = q.length - 1, ser = KIS.d.series[KIS.company] || {};
+  var fy = [];
+  for (var i = L; i >= 0 && fy.length < 5; i--) { if (q[i].slice(-2) === 'Q4') fy.unshift(i); }
+  var cols = fy.map(function(i){ return {i: i, fy: true}; });
+  cols.push({i: L - 4, fy: false});
+  cols.push({i: L, fy: false});
+  var fmt = function(v, u) {
+    if (v === null || v === undefined) return '-';
+    return u === 'eok' ? v.toLocaleString('ko-KR', {maximumFractionDigits: 0}) : v.toFixed(1) + '%';
+  };
+  tb.querySelector('thead').innerHTML = '<tr><th>구분</th>' + cols.map(function(c){ return '<th>' + kisQLabel(q[c.i]) + '</th>'; }).join('') + '</tr>';
+  tb.querySelector('tbody').innerHTML = KIS_PROFIT_ROWS.map(function(r){
+    return '<tr><td>' + r.n + '</td>' + cols.map(function(c){
+      var arr = ser[c.fy ? r.fy : r.q];
+      return '<td>' + fmt(arr ? arr[c.i] : null, r.u) + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
 }
