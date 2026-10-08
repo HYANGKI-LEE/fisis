@@ -717,7 +717,7 @@ def render_statement_tab(sector_key: str, sector: str, kind: str) -> str:
         f'<p class="caption" id="isCaption-{sector_key}"></p>'
     )
     main_title = "손익 흐름" if kind == "is" else "자산 vs 부채 및 자본"
-    pie_title = "수익 / 비용 구성" if kind == "is" else "자산 / 부채 및 자본 구성"
+    pie_title = "수익 / 비용 구성" if kind == "is" else "자산 / 부채 및 자본 구성 비중 (업권 전체 vs 선택 회사)"
     body = (
         f'<h4>{main_title}</h4>'
         f'<div id="isMain-{sector_key}" class="plotly-chart"></div>'
@@ -1315,7 +1315,7 @@ function onIsChange(sector) {
   st.basis = basisEl ? basisEl.value : 'q';   // 재무상태표는 시점 잔액이라 항상 'q'
   renderIsCaption(sector);
   if (data.kind === 'is') renderIsWaterfall(sector); else renderBsStack(sector);
-  renderIsPies(sector);
+  if (data.kind === 'bs') renderBsShare(sector); else renderIsPies(sector);
   renderIsTable(sector);
 }
 
@@ -1410,6 +1410,45 @@ function renderIsPies(sector) {
       hovertemplate: '%{label}: %{value:,.1f}억원 (%{percent})<extra></extra>'
     }], {
       title: {text: pie.title, font: {size: 15}}, height: 380, margin: {t: 50, r: 10, b: 10, l: 10}, showlegend: false
+    }, {displaylogo: false, responsive: true});
+  });
+}
+
+
+// 대차대조표: 업권 전체 vs 선택 회사의 구성 비중(100% 누적 막대). 전체를 고르면 업권 전체 한 개만 표시
+function renderBsShare(sector) {
+  var st = IS_STATE[sector], data = st.data;
+  var entities = [data.allLabel];
+  if (st.company !== data.allLabel) entities.push(st.company);
+  var xLabels = entities.map(function(c){ return c === data.allLabel ? '업권 전체' : c; });
+  data.pies.forEach(function(pie, n){
+    var id = 'isPie' + n + '-' + sector;
+    var vals = pie.ids.map(function(code){
+      return entities.map(function(c){
+        var v = isValue(st, c, code, st.idx, 'q');
+        return (v === null || v <= 0) ? 0 : v;
+      });
+    });
+    var totals = entities.map(function(_, e){
+      return vals.reduce(function(sum, row){ return sum + row[e]; }, 0);
+    });
+    if (totals.every(function(t){ return t === 0; })) { emptyChartMsg(id, '해당 분기 데이터가 없어요.'); return; }
+    var traces = [];
+    pie.ids.forEach(function(code, k){
+      var name = isCodeName(st, code);
+      var pct = vals[k].map(function(v, e){ return totals[e] ? v / totals[e] * 100 : 0; });
+      traces.push({
+        type: 'bar', x: xLabels, y: pct, name: name,
+        marker: {color: pie.colors[k % pie.colors.length]},
+        text: pct.map(function(p){ return p >= 3 ? name + ' ' + p.toFixed(1) + '%' : ''; }),
+        textposition: 'inside', insidetextanchor: 'middle', textfont: {size: 12},
+        hovertemplate: '%{x}<br>' + name + ' %{y:.1f}%<extra></extra>'
+      });
+    });
+    plotReact(id, traces, {
+      barmode: 'stack', title: {text: pie.title, font: {size: 15}}, height: 420,
+      margin: {t: 50, r: 10, b: 40, l: 50}, showlegend: false,
+      yaxis: {range: [0, 100], ticksuffix: '%'}
     }, {displaylogo: false, responsive: true});
   });
 }
