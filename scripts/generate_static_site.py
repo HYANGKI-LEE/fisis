@@ -449,32 +449,46 @@ def render_scatter_section(sector: str) -> str:
         xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
         yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"),
         legend=dict(x=0.8, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
-    # 2열: 오른쪽은 대손 차감 후 경상이익률(= 경상이익률 - 대손비용률)
-    net = df["경상이익률"] - df["대손비용률"]
-    slope, icpt = np.polyfit(x, net.to_numpy(), 1)
-    r2_net = float(np.corrcoef(x, net)[0, 1] ** 2)
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(
-        x=df["대출금리"], y=net, mode="markers", name="대손 차감 후 경상이익률",
-        marker=dict(color="#C0504D", symbol="circle", size=9),
-        customdata=[short(c) for c in df["회사"]],
-        hovertemplate="%{customdata}<br>대출금리 %{x:.2f}% / 대손 차감 후 경상이익률 %{y:.2f}%<extra></extra>"))
-    fig2.add_trace(go.Scatter(
-        x=xs, y=slope * xs + icpt, mode="lines", line=dict(color="#C0504D", dash="dot", width=3),
-        hoverinfo="skip", showlegend=False))
-    fig2.add_annotation(xref="paper", yref="paper", x=0.06, y=0.97, showarrow=False,
-                        text=f"<b>R² = {r2_net:.4f}</b>", font=dict(color="#C0504D", size=14), xanchor="left")
-    fig2.update_layout(
-        height=480, margin=dict(t=30, b=60), plot_bgcolor="white",
-        xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
-        yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"),
-        legend=dict(x=0.5, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
+    # 2열: 오른쪽은 대손 차감 후 경상이익률(= 경상이익률 - 대손비용률). 아래 줄에는 웰컴저축은행 제외 버전
+    def net_fig(d: pd.DataFrame, title: str):
+        xd = d["대출금리"].to_numpy()
+        net = (d["경상이익률"] - d["대손비용률"]).to_numpy()
+        slope, icpt = np.polyfit(xd, net, 1)
+        r2 = float(np.corrcoef(xd, net)[0, 1] ** 2)
+        xr = np.array([xd.min(), xd.max()])
+        f = go.Figure()
+        f.add_trace(go.Scatter(
+            x=xd, y=net, mode="markers", name="대손 차감 후 경상이익률",
+            marker=dict(color="#C0504D", symbol="circle", size=9), showlegend=False,
+            customdata=[short(c) for c in d["회사"]],
+            hovertemplate="%{customdata}<br>대출금리 %{x:.2f}% / 대손 차감 후 경상이익률 %{y:.2f}%<extra></extra>"))
+        f.add_trace(go.Scatter(
+            x=xr, y=slope * xr + icpt, mode="lines", line=dict(color="#C0504D", dash="dot", width=3),
+            hoverinfo="skip", showlegend=False))
+        f.add_annotation(xref="paper", yref="paper", x=0.06, y=0.97, showarrow=False,
+                         text=f"<b>R² = {r2:.4f}</b>", font=dict(color="#C0504D", size=14), xanchor="left")
+        f.update_layout(
+            height=480, margin=dict(t=40, b=60), plot_bgcolor="white",
+            title=dict(text=title, font=dict(size=14), x=0.02),
+            xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
+            yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"))
+        return f, slope, r2
+
+    fig2, slope_all, r2_all = net_fig(df, f"대손 차감 후 경상이익률 ({len(df)}개사)")
+    excl = "웰컴저축은행"
+    df_ex = df[df["회사"] != excl]
+    fig3, slope_ex, r2_ex = net_fig(df_ex, f"대손 차감 후 경상이익률 ({excl} 제외, {len(df_ex)}개사)")
+    stats = (f'<p class="caption" style="padding:40px 8px;">대손 차감 후 경상이익률의 대출금리 추세선 기울기와 R²<br>'
+             f'· 전체 {len(df)}개사: 기울기 {slope_all:+.2f}, R² {r2_all:.3f}<br>'
+             f'· {excl} 제외 {len(df_ex)}개사: 기울기 {slope_ex:+.2f}, R² {r2_ex:.3f}</p>')
     return (
         f'<h4>회사별 대출금리 수준과 경상이익률·대손비용률 <span class="caption" style="font-weight:normal;">'
         f'(단위: %, {qlabel} 기준 연환산, 신평사 유효등급 {len(df)}개사)</span></h4>'
         f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
         f'<div class="cell">{chart_div(fig)}</div>'
         f'<div class="cell">{chart_div(fig2)}</div>'
+        f'<div class="cell">{chart_div(fig3)}</div>'
+        f'<div class="cell">{stats}</div>'
         f'</div>'
         f'<p class="caption">{SCATTER_FOOTNOTE}</p>'
     )
