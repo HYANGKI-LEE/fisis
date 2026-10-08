@@ -244,12 +244,13 @@ function kisRenderDist(el, ser, idx) {
 
 // 가계자금대출 비중(x) vs 신용대출 비중(y): 신평사 유효등급 회사별 산점도 (기간 선택의 마지막 분기 기준)
 function kisRenderScatter(el, idx) {
+  var cfg = JSON.parse(el.dataset.scatter);
   var allLabel = KIS.d.allLabel, S = KIS.d.series;
   var names = KIS.d.rated.filter(function(c){ return c !== allLabel; });
   var qi = -1;
   for (var j = idx.length - 1; j >= 0 && qi < 0; j--) {
     var n = names.filter(function(c){
-      var h = S[c] && S[c]['bw_hh_sh'], cr = S[c] && S[c]['bw_cred_sh'];
+      var h = S[c] && S[c][cfg.x], cr = S[c] && S[c][cfg.y];
       return h && cr && h[idx[j]] !== null && cr[idx[j]] !== null;
     }).length;
     if (n) qi = idx[j];
@@ -257,7 +258,7 @@ function kisRenderScatter(el, idx) {
   if (qi < 0) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
   var pts = names.map(function(c){
     var s = S[c] || {};
-    return {n: c, x: s['bw_hh_sh'] ? s['bw_hh_sh'][qi] : null, y: s['bw_cred_sh'] ? s['bw_cred_sh'][qi] : null};
+    return {n: c, x: s[cfg.x] ? s[cfg.x][qi] : null, y: s[cfg.y] ? s[cfg.y][qi] : null};
   }).filter(function(p){ return p.x !== null && p.y !== null; });
   var sel = pts.filter(function(p){ return p.n === KIS.company; });
   var others = pts.filter(function(p){ return p.n !== KIS.company; });
@@ -265,25 +266,25 @@ function kisRenderScatter(el, idx) {
     x: others.map(function(p){ return p.x; }), y: others.map(function(p){ return p.y; }), mode: 'markers+text', type: 'scatter',
     text: others.map(function(p){ return kisShort(p.n); }), textposition: 'top center', textfont: {size: 9, color: '#555'},
     customdata: others.map(function(p){ return kisShort(p.n); }), name: '신평사 유효등급 ' + pts.length + '개사',
-    marker: {color: '#2980B9', size: 9}, hovertemplate: '%{customdata}<br>가계자금대출 %{x:.1f}% / 신용 %{y:.1f}%<extra></extra>'
+    marker: {color: '#2980B9', size: 9}, hovertemplate: '%{customdata}<br>' + cfg.xl.replace(' (%)','') + ' %{x:.1f}% / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'
   }];
   if (sel.length) {
     traces.push({x: [sel[0].x], y: [sel[0].y], mode: 'markers+text', type: 'scatter', text: [kisShort(sel[0].n)], textposition: 'top center',
                  textfont: {size: 11, color: '#E8312F'}, name: '선택: ' + kisShort(sel[0].n),
                  marker: {color: '#E8312F', size: 13, symbol: 'diamond'},
-                 hovertemplate: kisShort(sel[0].n) + '<br>가계자금대출 %{x:.1f}% / 신용 %{y:.1f}%<extra></extra>'});
+                 hovertemplate: kisShort(sel[0].n) + '<br>' + cfg.xl.replace(' (%)','') + ' %{x:.1f}% / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'});
   }
   var a = S[allLabel] || {};
-  if (a['bw_hh_sh'] && a['bw_cred_sh'] && a['bw_hh_sh'][qi] !== null) {
-    traces.push({x: [a['bw_hh_sh'][qi]], y: [a['bw_cred_sh'][qi]], mode: 'markers', type: 'scatter', name: '업권 전체',
+  if (a[cfg.x] && a[cfg.y] && a[cfg.x][qi] !== null) {
+    traces.push({x: [a[cfg.x][qi]], y: [a[cfg.y][qi]], mode: 'markers', type: 'scatter', name: '업권 전체',
                  marker: {color: '#111', size: 11, symbol: 'x'},
-                 hovertemplate: '업권 전체<br>가계자금대출 %{x:.1f}% / 신용 %{y:.1f}%<extra></extra>'});
+                 hovertemplate: '업권 전체<br>' + cfg.xl.replace(' (%)','') + ' %{x:.1f}% / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'});
   }
   plotReact(el.id, traces, {
     height: 420, margin: {t: 28, b: 90, l: 55, r: 10},
     title: {text: KIS.d.quarters[qi] + ' 기준', font: {size: 12}, x: 0.02},
-    xaxis: {title: '가계자금대출 비중 (%)', ticksuffix: '%', showgrid: true, gridcolor: '#eef0f3'},
-    yaxis: {title: '신용대출 비중 (%)', ticksuffix: '%'},
+    xaxis: {title: cfg.xl, ticksuffix: '%', showgrid: true, gridcolor: '#eef0f3'},
+    yaxis: {title: cfg.yl, ticksuffix: '%'},
     legend: {orientation: 'h', y: -0.28, font: {size: 10}}
   }, {displaylogo: false, responsive: true});
 }
