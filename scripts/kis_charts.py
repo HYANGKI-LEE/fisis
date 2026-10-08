@@ -41,7 +41,8 @@ TAB_SECTIONS = {
 }
 
 # 탭별 차트 열 수 (기본 2열)
-TAB_COLUMNS = {"자산건전성": 3}
+TAB_COLUMNS = {}   # 기본 3열
+DEFAULT_COLUMNS = 3
 
 SECTION_TITLES = {
     "bs": "재무상태표 (단위: 억원)",
@@ -487,7 +488,7 @@ def render_kis_block(tab_label: str) -> str:
                 )
 
             cells = "".join(cell(*it) for it in items)
-            cols = TAB_COLUMNS.get(tab_label, 2)
+            cols = TAB_COLUMNS.get(tab_label, DEFAULT_COLUMNS)
             parts.append(f'<div class="grid" style="grid-template-columns:repeat({cols},1fr);">{cells}</div>')
     return "".join(parts)
 

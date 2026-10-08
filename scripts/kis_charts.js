@@ -2,6 +2,13 @@
 /* ===================== 저축은행 Data Package 항목 차트 (kis_charts.py가 데이터/자리를 만들고 여기서 그림) ===================== */
 var KIS = null;
 
+// 차트 제목(가운데, 굵게)을 그림 안에 넣음. sub = 부제(예: 기준 분기)
+function kisTitle(el, sub) {
+  var t = '<b>' + el.dataset.name + '</b>' + (el.dataset.unit ? ' (' + el.dataset.unit + ')' : '');
+  if (sub) t += '<br><sup>' + sub + '</sup>';
+  return {text: t, x: 0.5, xanchor: 'center', font: {size: 14}};
+}
+
 // x축(분기 라벨)은 최신 분기를 기준으로 4분기(1년)마다 표시
 function kisXAxis(n) {
   return {type: 'category', tickangle: -45, tickfont: {size: 10}, tickmode: 'linear', tick0: (n - 1) % 4, dtick: 4};
@@ -127,7 +134,7 @@ function kisRenderVisible() {
       marker: {color: isBar ? '#2980B9' : undefined}, line: isBar ? undefined : {color: '#2980B9', width: 2.2},
       connectgaps: true, hovertemplate: '%{x}<br>' + name + ' %{y:' + fmt + '}' + unit + '<extra></extra>'
     }];
-    var layout = {height: 308, margin: {t: 10, b: 60, l: 60, r: 10}, showlegend: false,
+    var layout = {height: 308, margin: {t: 50, b: 60, l: 60, r: 10}, showlegend: false, title: kisTitle(el),
                   xaxis: kisXAxis(x.length), yaxis: {tickformat: unit === '억원' ? ',' : undefined}};
     var shareKey = el.dataset.share;
     if (shareKey && ser[shareKey]) {
@@ -162,10 +169,10 @@ function kisRenderMulti(el, ser, idx) {
             hovertemplate: '%{x}<br>' + sp.n + ' %{y:' + fmt + '}' + unit + '<extra></extra>'};
   });
   plotReact(el.id, traces, {
-    height: 352, margin: {t: 10, b: 90, l: 60, r: 10},
+    height: 352, margin: {t: 50, b: 60, l: 60, r: 10}, title: kisTitle(el),
     xaxis: kisXAxis(x.length),
     yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
-    legend: {orientation: 'h', y: -0.32}
+    legend: {}
   }, {displaylogo: false, responsive: true});
 }
 
@@ -203,8 +210,8 @@ function kisRenderCmp(el, ser, idx) {
     }
   });
   plotReact(el.id, traces, {
-    height: 352, margin: {t: 10, b: 130, l: 60, r: 10}, xaxis: kisXAxis(x.length),
-    yaxis: {ticksuffix: '%'}, legend: {orientation: 'h', y: -0.4, font: {size: 10}}
+    height: 352, margin: {t: 50, b: 60, l: 60, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+    yaxis: {ticksuffix: '%'}, legend: {}
   }, {displaylogo: false, responsive: true});
 }
 
@@ -236,8 +243,8 @@ function kisRenderDist(el, ser, idx) {
             hovertemplate: '%{x}<br>' + sp.n + ' %{y:.1f}%<extra></extra>'};
   });
   plotReact(el.id, traces, {
-    barmode: 'stack', height: 352, margin: {t: 28, b: 40, l: 50, r: 10}, showlegend: false,
-    title: {text: KIS.d.quarters[qi] + ' 기준', font: {size: 12}, x: 0.02},
+    barmode: 'stack', height: 352, margin: {t: 60, b: 40, l: 50, r: 10}, showlegend: false,
+    title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
     yaxis: {range: [0, 100], ticksuffix: '%'}
   }, {displaylogo: false, responsive: true});
 }
@@ -281,10 +288,10 @@ function kisRenderScatter(el, idx) {
                  hovertemplate: '업권 전체<br>' + cfg.xl.replace(' (%)','') + ' %{x:.1f}% / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'});
   }
   plotReact(el.id, traces, {
-    height: 420, margin: {t: 28, b: 90, l: 55, r: 10},
-    title: {text: KIS.d.quarters[qi] + ' 기준', font: {size: 12}, x: 0.02},
+    height: 420, margin: {t: 60, b: 55, l: 55, r: 10},
+    title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
     xaxis: {title: cfg.xl, ticksuffix: '%', showgrid: true, gridcolor: '#eef0f3'},
     yaxis: {title: cfg.yl, ticksuffix: '%'},
-    legend: {orientation: 'h', y: -0.28, font: {size: 10}}
+    legend: {}
   }, {displaylogo: false, responsive: true});
 }

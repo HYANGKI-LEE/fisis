@@ -44,7 +44,11 @@ SAVINGS_BANK_TABS = [
 # 차트 기본 스타일: 흰 배경, 가로(y축) 그리드만
 _tpl = pio.templates["plotly_white"]
 _tpl.layout.xaxis.showgrid = False
+_tpl.layout.xaxis.showline = True
+_tpl.layout.xaxis.linecolor = "#333"
 _tpl.layout.yaxis.showgrid = True
+_tpl.layout.yaxis.gridcolor = "#f0f1f3"
+_tpl.layout.font = dict(size=11, color="#333")
 pio.templates.default = _tpl
 
 _chart_counter = [0]
@@ -287,7 +291,7 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         f'<select id="rangeSelect-{sector_key}" onchange="onCompanyChange(\'{sector_key}\')">'
         f'{year_options}</select></label>'
         '</div>'
-        f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        f'<div class="grid" style="grid-template-columns:repeat(3,1fr);">'
         f'<div class="cell"><div id="trendNI-{sector_key}" class="plotly-chart"></div></div>'
         f'<div class="cell"><div id="trendDecomp-{sector_key}" class="plotly-chart"></div>'
         f'<p class="caption">{DECOMP_NOTE}</p></div>'
@@ -484,7 +488,7 @@ def render_scatter_section(sector: str) -> str:
     return (
         f'<h4>회사별 대출금리 수준과 경상이익률·대손비용률 <span class="caption" style="font-weight:normal;">'
         f'(단위: %, {qlabel} 기준 연환산, 신평사 유효등급 {len(df)}개사)</span></h4>'
-        f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        f'<div class="grid" style="grid-template-columns:repeat(3,1fr);">'
         f'<div class="cell">{chart_div(fig)}</div>'
         f'<div class="cell">{chart_div(fig2)}</div>'
         f'<div class="cell">{chart_div(fig3)}</div>'
@@ -558,7 +562,7 @@ def render_credit_rating_tab(sector_key: str, sector: str, kpi: pd.DataFrame, co
 
     # 한 줄에 너무 길면 추세가 안 보여서 2열 그리드로 배치
     trend_sections = (
-        '<div class="grid" style="grid-template-columns:1fr 1fr;">' +
+        '<div class="grid" style="grid-template-columns:repeat(3,1fr);">' +
         "".join(
             f'<div class="cell"><h4>{m}</h4><div id="crTrend-{sector_key}-{i}" class="plotly-chart"></div></div>'
             for i, m in enumerate(CR_METRICS)
@@ -779,7 +783,7 @@ def render_statement_tab(sector_key: str, sector: str, kind: str) -> str:
         f'<h4>{main_title}</h4>'
         f'<div id="isMain-{sector_key}" class="plotly-chart"></div>'
         f'<h4>{pie_title}</h4>'
-        '<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        '<div class="grid" style="grid-template-columns:repeat(3,1fr);">'
         f'<div class="cell"><div id="isPie0-{sector_key}" class="plotly-chart"></div></div>'
         f'<div class="cell"><div id="isPie1-{sector_key}" class="plotly-chart"></div></div>'
         '</div>'
@@ -878,7 +882,7 @@ def render_profitability_tab(kis_payload: dict, sector_key: str) -> str:
     )
     return (
         '<h4>ROA와 기준금리</h4>' + note + payload + controls +
-        '<div class="grid" style="grid-template-columns:1fr 1fr;">'
+        '<div class="grid" style="grid-template-columns:repeat(3,1fr);">'
         f'<div class="cell"><div id="profChart-{scope}" class="plotly-chart"></div></div>'
         '<div class="cell"></div>'
         '</div>'
@@ -950,7 +954,7 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .data-table th { text-align:right; padding:6px 8px; border-bottom:2px solid #333; white-space:nowrap; }
 .data-table th:first-child, .data-table td:first-child { text-align:left; }
 .data-table td { text-align:right; padding:5px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
-.kis-title { font-size:14px; font-weight:600; margin:10px 0 0; }
+.kis-title { display:none; font-size:14px; font-weight:600; margin:10px 0 0; }
 .kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }
 .is-table td:first-child { text-align:left; }
 .is-table tr.is-head td { font-weight:700; background:#f7f8fa; }
@@ -1179,10 +1183,59 @@ function onCrChange(sector) { renderCrBarChart(sector); renderAllCrTrends(sector
 function plotReact(id, data, layout, cfg) {
   var el = document.getElementById(id);
   if (el.querySelector('p.caption')) el.innerHTML = '';
-  // 기본 스타일: 흰 배경, 가로(y축) 그리드만 (차트별로 지정한 값이 있으면 그걸 우선)
   layout = Object.assign({plot_bgcolor: 'white', paper_bgcolor: 'white'}, layout || {});
-  layout.xaxis = Object.assign({showgrid: false}, layout.xaxis || {});
-  layout.yaxis = Object.assign({showgrid: true, gridcolor: '#e5e7eb'}, layout.yaxis || {});
+  layout.font = Object.assign({size: 11, color: '#333'}, layout.font || {});
+  // 제목: 가운데 정렬 + 굵게
+  if (typeof layout.title === 'string') layout.title = {text: layout.title};
+  if (layout.title && layout.title.text) {
+    var tt = layout.title.text;
+    if (tt.indexOf('<b>') < 0) tt = '<b>' + tt + '</b>';
+    layout.title = Object.assign({x: 0.5, xanchor: 'center'}, layout.title, {text: tt, font: Object.assign({size: 14}, layout.title.font || {})});
+  }
+  // 축: x는 진한 축선, y는 아주 연한 가로 그리드
+  layout.xaxis = Object.assign({showgrid: false, showline: true, linecolor: '#333', ticks: 'outside', tickcolor: '#333',
+                                tickfont: {size: 10, color: '#444'}}, layout.xaxis || {});
+  layout.yaxis = Object.assign({showgrid: true, gridcolor: '#f0f1f3', tickfont: {size: 10, color: '#444'}}, layout.yaxis || {});
+  // 범례: 항상 차트 안(왼쪽 위)에, 반투명 배경
+  var isPie = data.length && data.every(function(t){ return t.type === 'pie'; });
+  if (layout.showlegend !== false && !isPie && (layout.legend || data.length > 1)) {
+    var was = layout.legend || {};
+    // 선이 가장 적게 지나가는 모서리에 범례를 둠 (기본: 왼쪽 위)
+    var pos = {x: 0.01, y: 0.99, xanchor: 'left', yanchor: 'top'};
+    var ys = [];
+    data.forEach(function(t){ (t.y || []).forEach(function(v){ if (typeof v === 'number' && isFinite(v)) ys.push(v); }); });
+    if (ys.length && data.some(function(t){ return t.type === undefined || t.type === 'scatter'; })) {
+      var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys), rng = (ymax - ymin) || 1;
+      var cnt = {tl: 0, tr: 0, bl: 0, br: 0};
+      data.forEach(function(t){
+        if (!t.y) return;
+        var n = t.y.length;
+        t.y.forEach(function(v, i){
+          if (typeof v !== 'number' || !isFinite(v)) return;
+          var fx = n > 1 ? i / (n - 1) : 0.5, fy = (v - ymin) / rng;
+          if (fx < 0.4 && fy > 0.6) cnt.tl++; else if (fx > 0.6 && fy > 0.6) cnt.tr++;
+          else if (fx < 0.4 && fy < 0.4) cnt.bl++; else if (fx > 0.6 && fy < 0.4) cnt.br++;
+        });
+      });
+      var best = ['tl', 'tr', 'br', 'bl'].reduce(function(a, b){ return cnt[b] < cnt[a] ? b : a; });
+      pos = {tl: {x: 0.01, y: 0.99, xanchor: 'left', yanchor: 'top'}, tr: {x: 0.99, y: 0.99, xanchor: 'right', yanchor: 'top'},
+             bl: {x: 0.01, y: 0.02, xanchor: 'left', yanchor: 'bottom'}, br: {x: 0.99, y: 0.02, xanchor: 'right', yanchor: 'bottom'}}[best];
+    }
+    layout.legend = Object.assign({orientation: 'v', bgcolor: 'rgba(255,255,255,0.8)', borderwidth: 0,
+                                   font: {size: 10}, tracegroupgap: 2}, pos);
+    if (was.orientation === 'h' && was.y < 0 && layout.margin) {      // 아래쪽 범례 자리를 줄임
+      layout.margin = Object.assign({}, layout.margin, {b: Math.max(55, (layout.margin.b || 60) - 55)});
+    }
+    layout.showlegend = true;
+  }
+  // 선 차트: 마커 없이 굵게
+  data.forEach(function(t){
+    if ((t.type === undefined || t.type === 'scatter') && t.mode === 'lines+markers') {
+      t.mode = 'lines';
+      t.line = Object.assign({}, t.line || {});
+      t.line.width = Math.max(t.line.width || 0, 2.6);
+    }
+  });
   return Plotly.react(id, data, layout, cfg);
 }
 function emptyChartMsg(id, msg) {
@@ -1659,8 +1712,9 @@ function renderProf(scope) {
     {x: x, y: pick(d.rate), type: 'scatter', mode: 'lines+markers', name: '기준금리(우축·역축)', yaxis: 'y2',
      line: {color: '#E67E73', width: 2.5, shape: 'hv'}, hovertemplate: '%{x}<br>기준금리 %{y:.2f}%<extra></extra>'}
   ], {
-    height: 440, margin: {t: 30, b: 80, l: 60, r: 60},
-    xaxis: {type: 'category', tickangle: -45},
+    height: 440, margin: {t: 50, b: 60, l: 60, r: 60},
+    title: 'ROA와 기준금리',
+    xaxis: {type: 'category', tickangle: -45, tickmode: 'linear', tick0: (x.length - 1) % 4, dtick: 4},
     yaxis: {title: 'ROA (%)', zeroline: true, zerolinecolor: '#999'},
     yaxis2: {title: '기준금리 (%)', overlaying: 'y', side: 'right', autorange: 'reversed', showgrid: false},
     legend: {orientation: 'h', y: -0.3}
