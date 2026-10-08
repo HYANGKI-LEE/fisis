@@ -783,15 +783,16 @@ def industry_roa_series(long_df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_index()
 
 
-def render_profitability_tab(long_df: pd.DataFrame, sector_key: str) -> str:
+def render_profitability_tab(kis_payload: dict, sector_key: str) -> str:
     rate = load_base_rate_quarterly()
-    roa = industry_roa_series(long_df)
-    if rate.empty or roa.empty:
+    all_series = (kis_payload or {}).get("series", {}).get(kis_charts.ALL_LABEL, {})
+    roa_vals, roa4_vals = all_series.get("pf_roa"), all_series.get("pf_roa4")
+    if rate.empty or not roa_vals:
         return '<p class="caption">기준금리 또는 ROA 데이터가 없어요.</p>'
-    roa.index = [format_ym(int(v)) for v in roa.index]
+    quarters = kis_payload["quarters"]
+    roa = pd.DataFrame({"ROA": roa_vals, "ROA4": roa4_vals or [None] * len(quarters)}, index=quarters)
     # ROA가 있는 전 기간을 표시하고, 기준금리(인포맥스 엑셀)는 데이터가 있는 구간에만 그린다
-    # 분기 공시가 시작된 2016.Q1 이후만 (그 전은 반기 공시라 연율화 ROA가 맞지 않음)
-    labels = [q for q in roa.index if q >= "2016.Q1" and not pd.isna(roa["ROA"].get(q))]
+    labels = [q for q in quarters if not pd.isna(roa["ROA"].get(q))]
     rate = rate.reindex(labels)
     nn = lambda v: None if v is None or pd.isna(v) else round(float(v), 4)
     data = {
@@ -845,19 +846,19 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order)
     perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full)
 
+    rated = load_rated_companies(company_order)
+    kis_payload = kis_charts.build_kis_payload(sector, rated)
     stmt_kind = {"손익계산서": ("is", "is"), "대차대조표": ("bs", "bs")}
     rest = [
         render_statement_tab(f"{sector_key}-{stmt_kind[lbl][0]}", sector, stmt_kind[lbl][1])
         if lbl in stmt_kind
-        else render_profitability_tab(long_df, sector_key) if lbl == "수익성"
+        else render_profitability_tab(kis_payload, sector_key) if lbl == "수익성"
         else render_placeholder_tab(lbl)
         for lbl in SAVINGS_BANK_TABS[2:]
     ]
     bodies = [cr_content, perf_content] + rest
 
     # 저축은행 Data Package(SBI 탭 기준) 항목 차트: 서브탭 하단에 붙임
-    rated = load_rated_companies(company_order)
-    kis_payload = kis_charts.build_kis_payload(sector, rated)
     if kis_payload:
         bodies = [b + kis_charts.render_kis_block(lbl) for b, lbl in zip(bodies, SAVINGS_BANK_TABS)]
         return tabs_html(SAVINGS_BANK_TABS, bodies) + kis_charts.render_kis_data_script(kis_payload)

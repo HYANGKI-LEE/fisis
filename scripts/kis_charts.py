@@ -24,10 +24,10 @@ from dashboard.format import format_ym  # noqa: E402
 from dashboard.loader import latest_final_df_path  # noqa: E402
 
 START_YM = 200706   # final_df에 있는 가장 이른 분기부터
-# 2015년 이전에는 반기(6/12월)만 공시되고 손익 '당분기' 값도 연/반기 누계와 섞여 있어서, 손익·연율화 비율은
-# 분기 공시가 시작된 2016.Q1부터만 그린다 (잔액/FISIS 제공 비율 항목은 가능한 전 기간).
+# 2015년까지는 회계연도가 7월~6월이고 반기(6/12월)만 공시됐다. 이 기간 12월 '누계'는 7~12월 6개월, 6월 '누계'는
+# 7~6월 12개월 값이라 '누계'를 같은 회계연도 안에서 차분해 반기 흐름을 만든다(금액 차트는 분기 평균으로 환산,
+# 비율은 반기 x2 연율화). 분기 공시가 시작된 2016.Q1부터는 '당분기' 값을 그대로 쓴다.
 FLOW_START_YM = 201603
-FLOW_PREFIXES = ("is_", "pf_")
 ALL_LABEL = "저축은행 전체"
 
 # 섹션 -> 서브탭 배치 (차주별 원화대출금은 자산건전성 탭 아래)
@@ -62,6 +62,13 @@ def _mat(df: pd.DataFrame, qcols: list[str], table: str, code: str, item: str | 
     return t.groupby("금융회사명")[qcols].first()
 
 
+def _fiscal(yyyymm: int) -> tuple[int, int]:
+    """저축은행 회계연도는 2015년까지 7월~다음해 6월이었다(2015.12까지 반기 공시). (회계연도, 회계연도 시작 후 경과 개월)
+    예: 200812 -> (2009, 6) / 200906 -> (2009, 12). 이 기간 12월 '누계'는 7~12월(6개월), 6월 '누계'는 7~6월(12개월)이다."""
+    y, m = divmod(yyyymm, 100)
+    return (y if m <= 6 else y + 1), ((m - 6 - 1) % 12) + 1
+
+
 def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     path = latest_final_df_path(sector)
     if path is None:
@@ -85,13 +92,70 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     def g(table, code, item=None, scale=1e8):
         return _mat(df, qcols, table, code, item).reindex(index=companies, columns=cal) / scale
 
-    def prev(x):  # 직전 분기말 값 (분기 열이 빈틈없이 이어져 있으므로 한 칸 shift)
-        return x.shift(1, axis=1)
+    n_co = len(companies)
+    cal_i = np.array([int(c) for c in cal])
+
+    # --- 손익 흐름: 분기 공시 시작(2016.Q1~)은 '당분기' 값, 그 이전(반기 공시)은 '누계'를 같은 해 직전 보고
+    #     시점과 차분해서 반기 흐름을 만든다. months = 각 보고 기간의 길이(개월).
+    rep_cum = g("SE006", "C", "누계", scale=1.0).notna().to_numpy()
+    rep_q = g("SE006", "C", "당분기", scale=1.0).notna().to_numpy()
+    months = np.full((n_co, len(cal)), np.nan)
+    last_m, fy = np.zeros(n_co), None
+    for j, t in enumerate(cal_i):
+        if t >= FLOW_START_YM:
+            months[:, j] = np.where(rep_q[:, j], 3.0, np.nan)
+            continue
+        fy_key, m_fy = _fiscal(int(t))
+        if fy_key != fy:
+            fy, last_m = fy_key, np.zeros(n_co)
+        months[:, j] = np.where(rep_cum[:, j], m_fy - last_m, np.nan)
+        last_m = np.where(rep_cum[:, j], m_fy, last_m)
+    months_df = pd.DataFrame(months, index=companies, columns=cal)
+    ann = 12.0 / months_df           # 연율화 배수 (분기 4, 반기 2)
+    q_equiv = months_df / 3.0        # 한 분기 환산 나눗수 (반기 2)
+
+    def P(code):
+        """손익 항목의 기간별 흐름(분기 공시 이후는 당분기, 이전은 누계 차분)."""
+        qv = g("SE006", code, "당분기").to_numpy()
+        cv = g("SE006", code, "누계").to_numpy()
+        res = np.full(qv.shape, np.nan)
+        last_v, fy = np.zeros(n_co), None
+        for j, t in enumerate(cal_i):
+            if t >= FLOW_START_YM:
+                res[:, j] = qv[:, j]
+                continue
+            fy_key, _ = _fiscal(int(t))
+            if fy_key != fy:
+                fy, last_v = fy_key, np.zeros(n_co)
+            if True:
+                res[:, j] = np.where(rep_cum[:, j], cv[:, j] - last_v, np.nan)
+                last_v = np.where(rep_cum[:, j] & ~np.isnan(cv[:, j]), cv[:, j], last_v)
+        return pd.DataFrame(res, index=companies, columns=cal)
+
+    def lag(x):
+        """보고 기간의 시작 시점(= 기간 길이만큼 이전 분기말) 값."""
+        v, out = x.to_numpy(), np.full(x.shape, np.nan)
+        for j in range(len(cal)):
+            k = months[:, j] / 3.0
+            ok = ~np.isnan(k)
+            src = j - np.where(ok, k, 0).astype(int)
+            valid = ok & (src >= 0)
+            rows = np.where(valid)[0]
+            out[rows, j] = v[rows, src[rows]]
+        return pd.DataFrame(out, index=x.index, columns=x.columns)
+
+    def ltm(flow):
+        """최근 12개월(4개 분기 열) 안에서 보고된 기간들의 합 - 기간 합이 12개월일 때만."""
+        f, mo, out = flow.fillna(0).to_numpy(), months_df.fillna(0).to_numpy(), np.full(flow.shape, np.nan)
+        for j in range(3, f.shape[1]):
+            tot, cov = f[:, j - 3:j + 1].sum(axis=1), mo[:, j - 3:j + 1].sum(axis=1)
+            out[:, j] = np.where(cov == 12, tot, np.nan)
+        return pd.DataFrame(out, index=flow.index, columns=flow.columns)
 
     A = lambda c: g("SE003", c, "금액")           # 자산
     L = lambda c: g("SE004", c, "금액")           # 부채 및 자본
-    P = lambda c: g("SE006", c, "당분기")         # 손익(당분기)
     fill0 = lambda x: x.fillna(0)
+    qe = lambda d: d / q_equiv                    # 금액 차트: 반기 값은 분기 평균으로 환산
 
     asset, cash, sec, loan = A("A"), A("A1"), A("A2"), A("A3")
     liab, dep, borrow, equity = L("A1"), L("A11"), L("A12"), L("A2")
@@ -130,29 +194,33 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     op = P("C")
     prov_exp = P("B3G0")
     sga = P("B4")
-    add_sum("is_total", op)           # Data Package 표에서 총영업이익 = 영업이익과 같은 값
-    add_sum("is_int", interest)
-    add_sum("is_fee", fee)
-    add_sum("is_sec", secg)
-    add_sum("is_oth", other)
-    add_sum("is_sga", sga)
-    add_sum("is_ppop", op + prov_exp)
-    add_sum("is_prov", prov_exp)
-    add_sum("is_op", op)
-    add_sum("is_nonop", P("L"))
-    add_sum("is_ni", P("K"))
+    ni = P("K")
+    add_sum("is_total", qe(op))       # Data Package 표에서 총영업이익 = 영업이익과 같은 값
+    add_sum("is_int", qe(interest))
+    add_sum("is_fee", qe(fee))
+    add_sum("is_sec", qe(secg))
+    add_sum("is_oth", qe(other))
+    add_sum("is_sga", qe(sga))
+    add_sum("is_ppop", qe(op + prov_exp))
+    add_sum("is_prov", qe(prov_exp))
+    add_sum("is_op", qe(op))
+    add_sum("is_nonop", qe(P("L")))
+    add_sum("is_ni", qe(ni))
 
     # ---------------- 수익성 (분기 연율화, 분모는 분기 평잔)
-    avg_asset = (asset + prev(asset)) / 2
+    avg_asset = (asset + lag(asset)) / 2
     earn_assets = cash + sec + loan + A("A51") + A("A52")
-    avg_earn = (earn_assets + prev(earn_assets)) / 2
+    avg_earn = (earn_assets + lag(earn_assets)) / 2
     add_sum("pf_avg", avg_asset)
-    add_ratio("pf_roa", P("K") * 4, avg_asset)
-    add_ratio("pf_ppop", (op + prov_exp) * 4, avg_asset)
-    add_ratio("pf_nim", interest * 4, avg_earn)
+    add_ratio("pf_roa", ni * ann, avg_asset)
+    add_ratio("pf_ppop", (op + prov_exp) * ann, avg_asset)
+    add_ratio("pf_nim", interest * ann, avg_earn)
     prov_cost = prov_exp + fill0(P("B53")) - fill0(P("A24D0")) - fill0(P("A4"))
-    add_ratio("pf_prov", prov_cost * 4, avg_asset)
-    add_ratio("pf_sga", sga * 4, avg_asset)
+    add_ratio("pf_prov", prov_cost * ann, avg_asset)
+    add_ratio("pf_sga", sga * ann, avg_asset)
+    # 수익성 탭 ROA 차트용(4분기누적): 최근 12개월 당기순이익 / 기초~기말 분기말 총자산 평균
+    avg5 = asset.T.rolling(5, min_periods=1).mean().T
+    add_ratio("pf_roa4", ltm(ni), avg5)
 
     # ---------------- 자산건전성
     tot_loan = g("SE008", "A1")
@@ -207,12 +275,6 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
             ok = num.notna() & den.notna() & (den != 0)
             per = (num / den.where(den != 0)) * m["mult"]
             agg = num.where(ok).sum(min_count=1) / den.where(ok).sum(min_count=1) * m["mult"]
-        is_flow = key.startswith(FLOW_PREFIXES)
-        flow_ok = np.array([int(q) >= FLOW_START_YM for q in cal])
-        if is_flow:
-            per = per.loc[:, flow_ok]
-            per = per.reindex(columns=cal)          # 마스크된 분기는 NaN
-            agg = agg.where(pd.Series(flow_ok, index=agg.index))
         for c in companies:
             vals = to_list(per.loc[c].to_numpy())
             if any(v is not None for v in vals):

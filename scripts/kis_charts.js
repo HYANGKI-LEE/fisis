@@ -96,7 +96,6 @@ function kisIndices() {
 function kisRenderVisible() {
   if (!kisInit()) return;
   var idx = kisIndices();
-  var x = idx.map(function(i){ return KIS.d.quarters[i]; });
   var ser = KIS.d.series[KIS.company] || {};
   document.querySelectorAll('.kis-chart').forEach(function(el){
     if (el.offsetParent === null) return;                       // 숨겨진 탭
@@ -104,7 +103,13 @@ function kisRenderVisible() {
     el.dataset.v = String(KIS.version);
     var key = el.dataset.key, y = ser[key];
     if (!y) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
-    var yv = idx.map(function(i){ return y[i]; });
+    // 데이터가 시작되기 전(앞쪽 빈 구간)은 잘라서 차트 폭을 낭비하지 않음
+    var firstOk = 0;
+    while (firstOk < idx.length && (y[idx[firstOk]] === null || y[idx[firstOk]] === undefined)) firstOk++;
+    if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+    var idxC = idx.slice(firstOk);
+    var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+    var yv = idxC.map(function(i){ return y[i]; });
     var isBar = el.dataset.type === 'bar';
     var unit = el.dataset.unit, name = el.dataset.name;
     var fmt = unit === '억원' ? ',.1f' : '.2f';
@@ -117,7 +122,7 @@ function kisRenderVisible() {
                   xaxis: {type: 'category', tickangle: -45, tickfont: {size: 10}}, yaxis: {tickformat: unit === '억원' ? ',' : undefined}};
     var shareKey = el.dataset.share;
     if (shareKey && ser[shareKey]) {
-      var sv = idx.map(function(i){ return ser[shareKey][i]; });
+      var sv = idxC.map(function(i){ return ser[shareKey][i]; });
       traces.push({x: x, y: sv, type: 'scatter', mode: 'lines+markers', name: '비중', yaxis: 'y2', connectgaps: true,
                    line: {color: '#E67E73', width: 2}, hovertemplate: '%{x}<br>비중 %{y:.1f}%<extra></extra>'});
       layout.yaxis2 = {overlaying: 'y', side: 'right', showgrid: false, ticksuffix: '%', rangemode: 'tozero'};
