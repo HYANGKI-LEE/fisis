@@ -40,6 +40,9 @@ TAB_SECTIONS = {
     "유동성": ["liquidity"],
 }
 
+# 탭별 차트 열 수 (기본 2열)
+TAB_COLUMNS = {"자산건전성": 3}
+
 SECTION_TITLES = {
     "bs": "재무상태표 (단위: 억원)",
     "is": "손익계산서 (단위: 억원, 당분기)",
@@ -441,7 +444,8 @@ def render_kis_block(tab_label: str) -> str:
                 )
 
             cells = "".join(cell(*it) for it in items)
-            parts.append(f'<div class="grid" style="grid-template-columns:1fr 1fr;">{cells}</div>')
+            cols = TAB_COLUMNS.get(tab_label, 2)
+            parts.append(f'<div class="grid" style="grid-template-columns:repeat({cols},1fr);">{cells}</div>')
     return "".join(parts)
 
 
