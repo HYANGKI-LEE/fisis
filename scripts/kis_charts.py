@@ -221,6 +221,13 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     # 수익성 탭 ROA 차트용(4분기누적): 최근 12개월 당기순이익 / 기초~기말 분기말 총자산 평균
     avg5 = asset.T.rolling(5, min_periods=1).mean().T
     add_ratio("pf_roa4", ltm(ni), avg5)
+    # 주요 손익 구성(총자산 대비): 이익은 +, 비용은 - 부호로 저장 (최근 실적 탭의 손익 분해 차트용)
+    prov_img = fill0(P("B53")) - fill0(P("A4")) + P("B3G") - fill0(P("A24D"))   # 충당부채전입액이 없는 시기는 NaN
+    add_ratio("dc_int", interest * ann, avg_asset)
+    add_ratio("dc_sec", secg * ann, avg_asset)
+    add_ratio("dc_fee", fee * ann, avg_asset)
+    add_ratio("dc_sga", -sga * ann, avg_asset)
+    add_ratio("dc_prov", -prov_img * ann, avg_asset)
     avg_equity = (equity + lag(equity)) / 2
     add_ratio("pf_roe", ni * ann, avg_equity)
 

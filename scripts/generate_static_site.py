@@ -200,6 +200,13 @@ def build_table_rows(snap_full: pd.DataFrame, columns=None, key_map=None) -> lis
     return rows
 
 
+DECOMP_NOTE = (
+    "총자산 평잔 대비 원천별 손익 비중(분기 연율화). 이자이익률 = (이자수익 - 이자비용) ÷ 평잔, "
+    "유가증권관련이익률 = (유가증권관련수익 - 유가증권관련비용) ÷ 평잔(배당금수익 제외), 순수수수료비용률 = (수수료비용 - 수수료수익) ÷ 평잔, "
+    "판관비용률 = 판매비와관리비 ÷ 평잔, 대손비용률 = (대출채권관련손실 - 대출채권관련수익 + 충당부채전입액 - 충당부채환입액) ÷ 평잔. "
+    "충당부채전입액이 공시되는 2016.Q1부터 그려져요. 자료: FISIS.")
+
+
 def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_full: pd.DataFrame,
                          kis_payload: dict | None = None, rated: list[str] | None = None) -> str:
     companies = snap_full["금융회사명"].tolist()  # 당기순이익 내림차순
@@ -219,16 +226,20 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
             arr = kis_payload["series"].get(company, {}).get(key)
             return [(arr[pos[q]] if arr and q in pos else None) for q in js_data["quarters"]]
 
+        decomp_keys = ("dc_int", "dc_sec", "dc_fee", "dc_sga", "dc_prov")
         for c in companies:
             js_data["series"][c]["ROA"] = kis_pick(c, "pf_roa")
             js_data["series"][c]["ROE"] = kis_pick(c, "pf_roe")
+            for k in decomp_keys:
+                js_data["series"][c][k] = kis_pick(c, k)
         total_ni = []
         for i in range(len(js_data["quarters"])):
             vals = [js_data["series"][c]["당기순이익"][i] for c in companies]
             vals = [v for v in vals if v is not None]
             total_ni.append(sum(vals) if vals else None)
         js_data["series"][all_label] = {
-            "당기순이익": total_ni, "ROA": kis_pick(all_label, "pf_roa"), "ROE": kis_pick(all_label, "pf_roe")}
+            "당기순이익": total_ni, "ROA": kis_pick(all_label, "pf_roa"), "ROE": kis_pick(all_label, "pf_roe"),
+            **{k: kis_pick(all_label, k) for k in decomp_keys}}
         js_data["companies"] = [all_label] + companies
     js_data["allLabel"] = all_label
     rated_names = [c for c in (rated or []) if c in companies]
@@ -278,8 +289,8 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         '</div>'
         f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
         f'<div class="cell"><div id="trendNI-{sector_key}" class="plotly-chart"></div></div>'
-        f'<div class="cell"><p class="caption" style="padding:40px 0;text-align:center;">'
-        f'저축은행 주요 손익 구성(총자산 대비) 차트는 수식 확인 후 추가할 예정이에요.</p></div>'
+        f'<div class="cell"><div id="trendDecomp-{sector_key}" class="plotly-chart"></div>'
+        f'<p class="caption">{DECOMP_NOTE}</p></div>'
         f'<div class="cell"><div id="trendRoaRoe-{sector_key}" class="plotly-chart"></div></div>'
         f'<div class="cell"></div>'
         f'</div>'
@@ -1062,6 +1073,26 @@ function renderTrendCharts(sector) {
                                    type:'bar', marker:{color:'#2980B9'}}], {
     height:360, margin:{t:40}, title:company + ' 당기순이익 추이', yaxis:{title:'당기순이익(억원)', tickformat:','}
   }, {displaylogo:false, responsive:true});
+
+  // 주요 손익 구성(총자산 대비 %): 이익은 위로, 비용은 아래로 쌓음. 대손비용률이 공시되는 구간만 표시
+  if (s['dc_int']) {
+    var decomp = [['dc_int', '이자이익률', '#2E5FA3'], ['dc_sec', '유가증권관련이익률', '#9DC3E6'],
+                  ['dc_fee', '순수수수료비용률', '#111111'], ['dc_sga', '판관비용률', '#F5B301'], ['dc_prov', '대손비용률', '#E8312F']];
+    var dIdx = idx.filter(function(i){ return s['dc_prov'][i] !== null; });
+    if (dIdx.length) {
+      var dq = dIdx.map(function(i){ return data.quarters[i]; });
+      plotReact('trendDecomp-' + sector, decomp.map(function(d){
+        return {x: dq, y: dIdx.map(function(i){ return s[d[0]][i]; }), type: 'bar', name: d[1], marker: {color: d[2]},
+                hovertemplate: '%{x}<br>' + d[1] + ' %{y:.2f}%<extra></extra>'};
+      }), {
+        barmode: 'relative', height: 360, margin: {t: 40, b: 90}, title: company + ' 주요 손익 구성(총자산 대비 %)',
+        xaxis: {type: 'category', tickangle: -45}, yaxis: {title: '총자산 대비(%)', ticksuffix: '%'},
+        legend: {orientation: 'h', y: -0.35}
+      }, {displaylogo: false, responsive: true});
+    } else {
+      emptyChartMsg('trendDecomp-' + sector, '이 기간엔 손익 구성 데이터가 없어요(2016.Q1부터 공시).');
+    }
+  }
 
   var traces = [];
   if (s['ROE'].some(function(v){ return v !== null; }))
