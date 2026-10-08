@@ -23,7 +23,11 @@ sys.path.insert(0, str(REPO_DIR))
 from dashboard.format import format_ym  # noqa: E402
 from dashboard.loader import latest_final_df_path  # noqa: E402
 
-START_YM = 201703
+START_YM = 200706   # final_df에 있는 가장 이른 분기부터
+# 2015년 이전에는 반기(6/12월)만 공시되고 손익 '당분기' 값도 연/반기 누계와 섞여 있어서, 손익·연율화 비율은
+# 분기 공시가 시작된 2016.Q1부터만 그린다 (잔액/FISIS 제공 비율 항목은 가능한 전 기간).
+FLOW_START_YM = 201603
+FLOW_PREFIXES = ("is_", "pf_")
 ALL_LABEL = "저축은행 전체"
 
 # 섹션 -> 서브탭 배치 (차주별 원화대출금은 자산건전성 탭 아래)
@@ -67,11 +71,19 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     if not qcols:
         return None
 
-    base = _mat(df, qcols, "SE003", "A", "금액")
+    # 분기 달력(빈 분기는 NaN) - 반기 공시 시절에도 직전 분기 shift가 어긋나지 않게 함
+    cal, y, m = [], int(qcols[0]) // 100, int(qcols[0]) % 100
+    while y * 100 + m <= int(qcols[-1]):
+        cal.append(f"{y * 100 + m:06d}")
+        m += 3
+        if m > 12:
+            y, m = y + 1, m - 12
+
+    base = _mat(df, qcols, "SE003", "A", "금액").reindex(columns=cal)
     companies = base.index.tolist()
 
     def g(table, code, item=None, scale=1e8):
-        return _mat(df, qcols, table, code, item).reindex(companies) / scale
+        return _mat(df, qcols, table, code, item).reindex(index=companies, columns=cal) / scale
 
     def prev(x):  # 직전 분기말 값 (분기 열이 빈틈없이 이어져 있으므로 한 칸 shift)
         return x.shift(1, axis=1)
@@ -195,6 +207,12 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
             ok = num.notna() & den.notna() & (den != 0)
             per = (num / den.where(den != 0)) * m["mult"]
             agg = num.where(ok).sum(min_count=1) / den.where(ok).sum(min_count=1) * m["mult"]
+        is_flow = key.startswith(FLOW_PREFIXES)
+        flow_ok = np.array([int(q) >= FLOW_START_YM for q in cal])
+        if is_flow:
+            per = per.loc[:, flow_ok]
+            per = per.reindex(columns=cal)          # 마스크된 분기는 NaN
+            agg = agg.where(pd.Series(flow_ok, index=agg.index))
         for c in companies:
             vals = to_list(per.loc[c].to_numpy())
             if any(v is not None for v in vals):
@@ -203,10 +221,10 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
         if any(v is not None for v in vals):
             series[ALL_LABEL][key] = vals
 
-    asset_latest = base[qcols[-1]].fillna(0)
+    asset_latest = base[cal[-1]].fillna(0)
     companies_sorted = sorted(companies, key=lambda c: -asset_latest.get(c, 0))
     return {
-        "quarters": [format_ym(int(q)) for q in qcols],
+        "quarters": [format_ym(int(q)) for q in cal],
         "allLabel": ALL_LABEL,
         "companies": [ALL_LABEL] + companies_sorted,
         "rated": [ALL_LABEL] + [c for c in companies_sorted if c in rated],

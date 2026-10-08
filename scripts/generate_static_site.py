@@ -789,7 +789,10 @@ def render_profitability_tab(long_df: pd.DataFrame, sector_key: str) -> str:
     if rate.empty or roa.empty:
         return '<p class="caption">기준금리 또는 ROA 데이터가 없어요.</p>'
     roa.index = [format_ym(int(v)) for v in roa.index]
-    labels = list(rate.index)                    # 기준금리가 있는 분기(2018.Q3~)만 표시
+    # ROA가 있는 전 기간을 표시하고, 기준금리(인포맥스 엑셀)는 데이터가 있는 구간에만 그린다
+    # 분기 공시가 시작된 2016.Q1 이후만 (그 전은 반기 공시라 연율화 ROA가 맞지 않음)
+    labels = [q for q in roa.index if q >= "2016.Q1" and not pd.isna(roa["ROA"].get(q))]
+    rate = rate.reindex(labels)
     nn = lambda v: None if v is None or pd.isna(v) else round(float(v), 4)
     data = {
         "labels": labels,
