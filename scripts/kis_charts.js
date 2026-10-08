@@ -2,6 +2,11 @@
 /* ===================== 저축은행 Data Package 항목 차트 (kis_charts.py가 데이터/자리를 만들고 여기서 그림) ===================== */
 var KIS = null;
 
+// x축(분기 라벨)은 최신 분기를 기준으로 4분기(1년)마다 표시
+function kisXAxis(n) {
+  return {type: 'category', tickangle: -45, tickfont: {size: 10}, tickmode: 'linear', tick0: (n - 1) % 4, dtick: 4};
+}
+
 function kisInit() {
   if (KIS) return true;
   var el = document.getElementById('kis-data');
@@ -119,8 +124,8 @@ function kisRenderVisible() {
       marker: {color: isBar ? '#2980B9' : undefined}, line: isBar ? undefined : {color: '#2980B9', width: 2.2},
       connectgaps: true, hovertemplate: '%{x}<br>' + name + ' %{y:' + fmt + '}' + unit + '<extra></extra>'
     }];
-    var layout = {height: 280, margin: {t: 10, b: 60, l: 60, r: 10}, showlegend: false,
-                  xaxis: {type: 'category', tickangle: -45, tickfont: {size: 10}}, yaxis: {tickformat: unit === '억원' ? ',' : undefined}};
+    var layout = {height: 308, margin: {t: 10, b: 60, l: 60, r: 10}, showlegend: false,
+                  xaxis: kisXAxis(x.length), yaxis: {tickformat: unit === '억원' ? ',' : undefined}};
     var shareKey = el.dataset.share;
     if (shareKey && ser[shareKey]) {
       var sv = idxC.map(function(i){ return ser[shareKey][i]; });
@@ -154,8 +159,8 @@ function kisRenderMulti(el, ser, idx) {
             hovertemplate: '%{x}<br>' + sp.n + ' %{y:' + fmt + '}' + unit + '<extra></extra>'};
   });
   plotReact(el.id, traces, {
-    height: 320, margin: {t: 10, b: 90, l: 60, r: 10},
-    xaxis: {type: 'category', tickangle: -45, tickfont: {size: 10}},
+    height: 352, margin: {t: 10, b: 90, l: 60, r: 10},
+    xaxis: kisXAxis(x.length),
     yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
     legend: {orientation: 'h', y: -0.32}
   }, {displaylogo: false, responsive: true});
