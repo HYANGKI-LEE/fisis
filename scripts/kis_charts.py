@@ -221,6 +221,8 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     # 수익성 탭 ROA 차트용(4분기누적): 최근 12개월 당기순이익 / 기초~기말 분기말 총자산 평균
     avg5 = asset.T.rolling(5, min_periods=1).mean().T
     add_ratio("pf_roa4", ltm(ni), avg5)
+    avg_equity = (equity + lag(equity)) / 2
+    add_ratio("pf_roe", ni * ann, avg_equity)
 
     # ---------------- 자산건전성
     tot_loan = g("SE008", "A1")

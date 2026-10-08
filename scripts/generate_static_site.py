@@ -200,7 +200,8 @@ def build_table_rows(snap_full: pd.DataFrame, columns=None, key_map=None) -> lis
     return rows
 
 
-def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_full: pd.DataFrame) -> str:
+def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_full: pd.DataFrame,
+                         kis_payload: dict | None = None, rated: list[str] | None = None) -> str:
     companies = snap_full["금융회사명"].tolist()  # 당기순이익 내림차순
     name_suffix = SECTOR_NAME_SUFFIX.get(sector, "")
     latest_q = format_ym(snap_full["기준분기"].max())
@@ -208,6 +209,30 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
     js_data = build_sector_js_data(kpi, companies)
     js_data["nameSuffix"] = name_suffix
     js_data["tableRows"] = build_table_rows(snap_full)
+
+    # ROA/ROE는 분기 연율화(Data Package 기준)로 모든 분기에 채우고, '저축은행 전체'(업권 합산) 항목을 추가
+    all_label = kis_charts.ALL_LABEL
+    if kis_payload:
+        pos = {q: i for i, q in enumerate(kis_payload["quarters"])}
+
+        def kis_pick(company, key):
+            arr = kis_payload["series"].get(company, {}).get(key)
+            return [(arr[pos[q]] if arr and q in pos else None) for q in js_data["quarters"]]
+
+        for c in companies:
+            js_data["series"][c]["ROA"] = kis_pick(c, "pf_roa")
+            js_data["series"][c]["ROE"] = kis_pick(c, "pf_roe")
+        total_ni = []
+        for i in range(len(js_data["quarters"])):
+            vals = [js_data["series"][c]["당기순이익"][i] for c in companies]
+            vals = [v for v in vals if v is not None]
+            total_ni.append(sum(vals) if vals else None)
+        js_data["series"][all_label] = {
+            "당기순이익": total_ni, "ROA": kis_pick(all_label, "pf_roa"), "ROE": kis_pick(all_label, "pf_roe")}
+        js_data["companies"] = [all_label] + companies
+    js_data["allLabel"] = all_label
+    rated_names = [c for c in (rated or []) if c in companies]
+    js_data["rated"] = rated_names
     data_script = (f'<script type="application/json" id="data-{sector_key}">'
                     f'{json.dumps(js_data, ensure_ascii=False, separators=(",", ":"))}</script>')
 
@@ -215,8 +240,9 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         f'<option value="{q}"{" selected" if i == len(js_data["quarters"]) - 1 else ""}>{q}</option>'
         for i, q in enumerate(js_data["quarters"])
     )
-    company_options = "".join(f"<option value=\"{c}\">" for c in companies)
-    default_company = companies[0] if companies else ""
+    listed = ([all_label] + rated_names) if rated_names else ([all_label] + companies)
+    company_options = "".join(f"<option value=\"{c}\">" for c in listed)
+    default_company = all_label if kis_payload else (companies[0] if companies else "")
 
     year_options = ""
     if js_data["quarters"]:
@@ -228,11 +254,13 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         )
         year_options += f'<option value="0">전체</option>'
 
+    bar_note = (f'<p class="caption">신평사 유효등급 보유 {len(rated_names)}개사 기준이에요.</p>' if rated_names else "")
     bar_section = (
         '<h4>회사별 실적 비교</h4>'
         '<div class="control-row"><label>기준 분기 '
         f'<select id="quarterSelect-{sector_key}" onchange="onQuarterChange(\'{sector_key}\')">'
         f'{quarter_options}</select></label></div>'
+        f'{bar_note}'
         f'<div id="barChart-{sector_key}" class="plotly-chart"></div>'
     )
 
@@ -241,7 +269,8 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         '<div class="control-row">'
         '<label>회사 선택(검색 가능) '
         f'<input type="text" id="companySelect-{sector_key}" list="companyList-{sector_key}" '
-        f'value="{default_company}" oninput="onCompanyChange(\'{sector_key}\')"></label>'
+        f'value="{default_company}" autocomplete="off" onfocus="perfFocus(\'{sector_key}\',this)" '
+        f'onblur="perfBlur(\'{sector_key}\',this)" oninput="perfInput(\'{sector_key}\',this)"></label>'
         f'<datalist id="companyList-{sector_key}">{company_options}</datalist>'
         '<label>조회 시작 '
         f'<select id="rangeSelect-{sector_key}" onchange="onCompanyChange(\'{sector_key}\')">'
@@ -249,7 +278,10 @@ def render_main_tab_rich(sector_key: str, sector: str, kpi: pd.DataFrame, snap_f
         '</div>'
         f'<div class="grid" style="grid-template-columns:1fr 1fr;">'
         f'<div class="cell"><div id="trendNI-{sector_key}" class="plotly-chart"></div></div>'
+        f'<div class="cell"><p class="caption" style="padding:40px 0;text-align:center;">'
+        f'저축은행 주요 손익 구성(총자산 대비) 차트는 수식 확인 후 추가할 예정이에요.</p></div>'
         f'<div class="cell"><div id="trendRoaRoe-{sector_key}" class="plotly-chart"></div></div>'
+        f'<div class="cell"></div>'
         f'</div>'
     )
 
@@ -843,11 +875,11 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
 
     snap_full = latest_snapshot_full(kpi)
     company_order = snap_full["금융회사명"].tolist()  # 당기순이익 내림차순, 두 탭 공통 정렬 기준
-    cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order)
-    perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full)
-
     rated = load_rated_companies(company_order)
     kis_payload = kis_charts.build_kis_payload(sector, rated)
+    cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order)
+    perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full, kis_payload, rated)
+
     stmt_kind = {"손익계산서": ("is", "is"), "대차대조표": ("bs", "bs")}
     rest = [
         render_statement_tab(f"{sector_key}-{stmt_kind[lbl][0]}", sector, stmt_kind[lbl][1])
@@ -985,12 +1017,24 @@ function initSectorMain(sector) {
 function onQuarterChange(sector) { renderBarChart(sector); }
 function onCompanyChange(sector) { renderTrendCharts(sector); }
 
+// 회사 검색창: 비어 있을 땐 저축은행 전체 + 신평사 유효등급 보유사만, 글자를 입력하면 전체 회사에서 검색
+function perfFill(sector, all) {
+  var d = SECTOR_DATA[sector];
+  var list = document.getElementById('companyList-' + sector);
+  var names = (all || !(d.rated && d.rated.length)) ? d.companies : [d.allLabel].concat(d.rated);
+  list.innerHTML = names.map(function(c){ return '<option value="' + c + '">'; }).join('');
+}
+function perfFocus(sector, el) { el.dataset.prev = el.value; el.value = ''; perfFill(sector, false); }
+function perfInput(sector, el) { perfFill(sector, el.value.length > 0); onCompanyChange(sector); }
+function perfBlur(sector, el) { if (!el.value) el.value = el.dataset.prev || ''; onCompanyChange(sector); }
+
 function renderBarChart(sector) {
   var data = SECTOR_DATA[sector];
   if (!data) return;
   var q = document.getElementById('quarterSelect-' + sector).value;
   var qIdx = data.quarters.indexOf(q);
-  var pairs = data.companies
+  var barCos = (data.rated && data.rated.length) ? data.rated : data.companies.filter(function(c){ return c !== data.allLabel; });
+  var pairs = barCos
     .map(function(c){ return [shortName(sector, c), data.series[c]['당기순이익'][qIdx]]; })
     .filter(function(p){ return p[1] !== null && p[1] !== undefined; })
     .map(function(p){ return [p[0], p[1] / 1e8]; });
@@ -1014,8 +1058,9 @@ function renderTrendCharts(sector) {
   var s = data.series[company];
   var pick = function(arr){ return idx.map(function(i){ return arr[i]; }); };
 
-  plotReact('trendNI-' + sector, [{x:quarters, y:pick(s['당기순이익']), type:'bar', marker:{color:'#2980B9'}}], {
-    height:360, margin:{t:40}, title:company + ' 당기순이익 추이', yaxis:{title:'당기순이익(원)'}
+  plotReact('trendNI-' + sector, [{x:quarters, y:pick(s['당기순이익']).map(function(v){ return v === null ? null : v / 1e8; }),
+                                   type:'bar', marker:{color:'#2980B9'}}], {
+    height:360, margin:{t:40}, title:company + ' 당기순이익 추이', yaxis:{title:'당기순이익(억원)', tickformat:','}
   }, {displaylogo:false, responsive:true});
 
   var traces = [];
