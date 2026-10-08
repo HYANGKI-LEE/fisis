@@ -391,6 +391,7 @@ SECTIONS = {
           ("ind_re_sh", "부동산업", "#E8312F"), ("ind_etc_sh", "기타", "#D9D9D9")]),
         ("cmp_i", "업종별 구성비: 선택 회사 vs 업권 전체", "%", "cmp",
          [("bw_cons_sh", "건설업", "#2E75B6"), ("bw_realty_sh", "부동산업", "#ED7D31")]),
+        ("sc_hh_cred", "가계자금대출 비중 vs 신용대출 비중 (신평사 유효등급 26개사)", "%", "scatter", None),
     ])],
     "capital": [(None, [
         ("cp_rwa", "위험가중자산", "억원", "bar", None),
@@ -411,7 +412,8 @@ SECTION_NOTES = {
               "대손비용률 = (대손상각비+대출채권관련손실-대손충당금환입-대출채권관련수익) ×4 ÷ 총자산 평잔이에요.",
     "asset": "연체율 = 연체액/총여신, 고정이하여신비율 = 고정이하여신/총여신, 대손충당금/고정이하여신 = 대손충당금적립잔액/고정이하분류여신이에요.",
     "capital": "레버리지배율 = 자산총계 ÷ 자본총계, BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산이에요.",
-    "borrower": "구성비 = 각 항목 ÷ 대출금 합계(용도별 대출). 부동산 담보는 담보의 일부예요. 업종별 구성은 2018.Q4부터 공시돼요.",
+    "borrower": "구성비 = 각 항목 ÷ 대출금 합계(용도별 대출). 부동산 담보는 담보의 일부예요. 업종별 구성은 2018.Q4부터 공시돼요. "
+                "맨 아래 산점도의 신용대출은 담보별 대출의 '신용'(기업·가계 신용대출 합계) 비중이에요.",
 }
 
 
@@ -455,6 +457,8 @@ def render_kis_block(tab_label: str) -> str:
                 multi = ""
                 if kind == "empty":
                     return '<div class="cell"></div>'
+                if kind == "scatter":
+                    multi = ' data-scatter="1"'
                 if kind in ("multi", "cmp", "dist"):
                     spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
                     multi = f" data-{kind}='{json.dumps(spec, ensure_ascii=False)}'"
