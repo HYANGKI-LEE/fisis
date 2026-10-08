@@ -45,7 +45,7 @@ SECTION_TITLES = {
     "is": "손익계산서 (단위: 억원, 당분기)",
     "profit": "수익성 (단위: %, 분기 연율화)",
     "asset": "자산건전성 (단위: 억원 / %)",
-    "borrower": "차주별 원화대출금 (단위: 억원, 선: 대출금 합계 대비 비중 %)",
+    "borrower": "차주별 원화대출금 (잔액: 억원, 구성비: %)",
     "capital": "자본적정성",
     "liquidity": "유동성 (단위: %)",
 }
@@ -353,27 +353,22 @@ SECTIONS = {
         ("aq_subr", "고정이하여신비율", "%", "line", None),
         ("aq_cov", "대손충당금/고정이하여신", "%", "line", None),
     ])],
-    "borrower": [
-        (None, [("bw_total", "대출금 합계", "억원", "bar", None)]),
-        ("차주별 구성", [
-            ("bw_corp", "기업자금대출", "억원", "bar", "bw_corp_sh"),
-            ("bw_sme", "중소기업대출", "억원", "bar", "bw_sme_sh"),
-            ("bw_indiv", "개인사업자", "억원", "bar", "bw_indiv_sh"),
-            ("bw_hh", "가계자금대출", "억원", "bar", "bw_hh_sh"),
-            ("bw_pub", "공공 및 기타", "억원", "bar", "bw_pub_sh"),
-        ]),
-        ("담보별 구성", [
-            ("bw_sec", "담보", "억원", "bar", "bw_sec_sh"),
-            ("bw_re", "부동산 담보", "억원", "bar", "bw_re_sh"),
-            ("bw_guar", "보증", "억원", "bar", "bw_guar_sh"),
-            ("bw_cred", "신용", "억원", "bar", "bw_cred_sh"),
-            ("bw_etc", "기타", "억원", "bar", "bw_etc_sh"),
-        ]),
-        ("업종별 구성", [
-            ("bw_cons", "건설업", "억원", "bar", "bw_cons_sh"),
-            ("bw_realty", "부동산업", "억원", "bar", "bw_realty_sh"),
-        ]),
-    ],
+    # 여러 선을 한 차트에 그리는 항목: ("차트id", 제목, 단위, "multi", [(시리즈키, 이름, 색), ...])
+    "borrower": [(None, [
+        ("mc_b_amt", "차주별 대출채권 추이", "억원", "multi",
+         [("bw_corp", "기업자금대출", "#F5B301"), ("bw_hh", "가계자금대출", "#E8312F"), ("bw_pub", "공공 및 기타", "#A6A6A6")]),
+        ("mc_c_amt", "담보별 대출채권 추이", "억원", "multi",
+         [("bw_sec", "담보", "#2E75B6"), ("bw_re", "부동산 담보", "#E8312F"), ("bw_guar", "보증", "#A6A6A6"), ("bw_cred", "신용", "#F5B301")]),
+        ("mc_b_sh1", "차주별 대출채권 구성비중 추이", "%", "multi",
+         [("bw_corp_sh", "기업자금대출", "#111111"), ("bw_sme_sh", "중소기업대출", "#E8312F"), ("bw_indiv_sh", "개인사업자", "#F5B301"),
+          ("bw_hh_sh", "가계자금대출", "#2E75B6"), ("bw_pub_sh", "공공 및 기타", "#A6A6A6")]),
+        ("mc_b_sh2", "차주별 대출채권 구성비중 추이(요약)", "%", "multi",
+         [("bw_corp_sh", "기업자금대출", "#111111"), ("bw_hh_sh", "가계자금대출", "#2E75B6"), ("bw_pub_sh", "공공 및 기타", "#A6A6A6")]),
+        ("mc_c_sh", "담보별 구성비 추이", "%", "multi",
+         [("bw_sec_sh", "담보", "#2E75B6"), ("bw_re_sh", "부동산 담보", "#E8312F"), ("bw_guar_sh", "보증", "#A6A6A6"), ("bw_cred_sh", "신용", "#F5B301")]),
+        ("mc_i_sh", "업종별 구성비 추이", "%", "multi",
+         [("bw_cons_sh", "건설업", "#2E75B6"), ("bw_realty_sh", "부동산업", "#ED7D31")]),
+    ])],
     "capital": [(None, [
         ("cp_rwa", "위험가중자산", "억원", "bar", None),
         ("cp_cap", "BIS기준 자기자본", "억원", "bar", None),
@@ -393,7 +388,7 @@ SECTION_NOTES = {
               "대손비용률 = (대손상각비+대출채권관련손실-대손충당금환입-대출채권관련수익) ×4 ÷ 총자산 평잔이에요.",
     "asset": "연체율 = 연체액/총여신, 고정이하여신비율 = 고정이하여신/총여신, 대손충당금/고정이하여신 = 대손충당금적립잔액/고정이하분류여신이에요.",
     "capital": "레버리지배율 = 자산총계 ÷ 자본총계, BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산이에요.",
-    "borrower": "선은 각 항목이 대출금 합계(용도별)에서 차지하는 비중이에요. 업종별 구성은 2018.Q4부터 공시돼요.",
+    "borrower": "구성비 = 각 항목 ÷ 대출금 합계(용도별 대출). 부동산 담보는 담보의 일부예요. 업종별 구성은 2018.Q4부터 공시돼요.",
 }
 
 
@@ -433,12 +428,19 @@ def render_kis_block(tab_label: str) -> str:
         for group_title, items in SECTIONS[sec]:
             if group_title:
                 parts.append(f'<h5 style="margin:18px 0 4px;color:var(--muted);">{group_title}</h5>')
-            cells = "".join(
-                f'<div class="cell"><div class="kis-title">{name} <span>({unit})</span></div>'
-                f'<div id="kis-{key}" class="plotly-chart kis-chart" data-key="{key}" data-type="{kind}" '
-                f'data-name="{name}" data-unit="{unit}" data-share="{share or ""}"></div></div>'
-                for key, name, unit, kind, share in items
-            )
+            def cell(key, name, unit, kind, extra):
+                multi = ""
+                if kind == "multi":
+                    spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
+                    multi = f" data-multi='{json.dumps(spec, ensure_ascii=False)}'"
+                    extra = ""
+                return (
+                    f'<div class="cell"><div class="kis-title">{name} <span>({unit})</span></div>'
+                    f'<div id="kis-{key}" class="plotly-chart kis-chart" data-key="{key}" data-type="{kind}" '
+                    f'data-name="{name}" data-unit="{unit}" data-share="{extra or ""}"{multi}></div></div>'
+                )
+
+            cells = "".join(cell(*it) for it in items)
             parts.append(f'<div class="grid" style="grid-template-columns:1fr 1fr;">{cells}</div>')
     return "".join(parts)
 

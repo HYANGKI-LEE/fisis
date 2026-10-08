@@ -101,6 +101,7 @@ function kisRenderVisible() {
     if (el.offsetParent === null) return;                       // 숨겨진 탭
     if (el.dataset.v === String(KIS.version)) return;           // 이미 최신
     el.dataset.v = String(KIS.version);
+    if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
     var key = el.dataset.key, y = ser[key];
     if (!y) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
     // 데이터가 시작되기 전(앞쪽 빈 구간)은 잘라서 차트 폭을 낭비하지 않음
@@ -130,4 +131,32 @@ function kisRenderVisible() {
     }
     plotReact(el.id, traces, layout, {displaylogo: false, responsive: true});
   });
+}
+
+// 여러 선을 한 차트에 (차주별/담보별/업종별 추이)
+function kisRenderMulti(el, ser, idx) {
+  var specs = JSON.parse(el.dataset.multi), unit = el.dataset.unit;
+  specs = specs.filter(function(sp){ return ser[sp.k]; });
+  if (!specs.length) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
+  var firstOk = idx.length;
+  specs.forEach(function(sp){
+    var j = 0;
+    while (j < idx.length && (ser[sp.k][idx[j]] === null || ser[sp.k][idx[j]] === undefined)) j++;
+    if (j < firstOk) firstOk = j;
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var fmt = unit === '억원' ? ',.0f' : '.1f';
+  var traces = specs.map(function(sp){
+    return {x: x, y: idxC.map(function(i){ return ser[sp.k][i]; }), type: 'scatter', mode: 'lines+markers', name: sp.n,
+            connectgaps: true, line: {color: sp.c, width: 2.2}, marker: {size: 5},
+            hovertemplate: '%{x}<br>' + sp.n + ' %{y:' + fmt + '}' + unit + '<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    height: 320, margin: {t: 10, b: 90, l: 60, r: 10},
+    xaxis: {type: 'category', tickangle: -45, tickfont: {size: 10}},
+    yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
+    legend: {orientation: 'h', y: -0.32}
+  }, {displaylogo: false, responsive: true});
 }
