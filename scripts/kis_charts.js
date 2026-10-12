@@ -296,7 +296,7 @@ function kisRenderScatter(el, idx) {
     title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
     xaxis: {title: cfg.xl, ticksuffix: '%', showgrid: true, gridcolor: '#eef0f3'},
     yaxis: {title: cfg.yl, ticksuffix: '%'},
-    legend: {}
+    showlegend: false
   }, {displaylogo: false, responsive: true});
 }
 
