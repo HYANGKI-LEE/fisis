@@ -50,8 +50,8 @@ SECTION_TITLES = {
     "profit": "수익성 추이 (비율은 분기 연율화)",
     "asset": "자산건전성 (단위: %, 회색 선: 업권 전체·신평사 유효등급 보유사)",
     "borrower": "차주별 원화대출금 (잔액: 억원, 구성비: %)",
-    "capital": "자본적정성",
-    "liquidity": "유동성 (단위: %)",
+    "capital": "자본적정성 (회색 선: 업권 전체·신평사 유효등급 보유사)",
+    "liquidity": "유동성 (단위: %, 회색 선: 업권 전체·신평사 유효등급 보유사)",
 }
 
 
@@ -433,14 +433,13 @@ SECTIONS = {
         ("sc_cred_cr", "신용대출 비중 vs 건설업+부동산업 비중 (모두 대출금 합계 대비, 신평사 유효등급 26개사)", "%", "scatter",
          {"x": "bw_cred_sh", "y": "bw_conre_sh", "xl": "신용대출 비중 (%)", "yl": "건설업+부동산업 비중 (대출금 합계 대비, %)"}),
     ])],
+    # 자본적정성: 선택 회사(색) + 업권 전체·신평사 유효등급 보유사(회색 선) 비교 (위험가중자산·BIS 자기자본 금액 차트는 삭제)
     "capital": [(None, [
-        ("cp_rwa", "위험가중자산", "억원", "bar", None),
-        ("cp_cap", "BIS기준 자기자본", "억원", "bar", None),
-        ("cp_bis", "BIS기준 자기자본비율", "%", "line", None),
-        ("cp_lev", "레버리지배율", "배", "line", None),
+        ("cp_bis", "BIS기준 자기자본비율", "%", "cmp3", {"k": "cp_bis", "gray": True}),
+        ("cp_lev", "레버리지배율", "배", "cmp3", {"k": "cp_lev", "gray": True}),
     ])],
     "liquidity": [(None, [
-        ("lq_ratio", "유동성비율", "%", "line", None),
+        ("lq_ratio", "유동성비율", "%", "cmp3", {"k": "lq_ratio", "gray": True}),
     ])],
 }
 

@@ -318,6 +318,7 @@ function kisRenderCmp3(el, ser, idx) {
   var isAll = KIS.company === KIS.d.allLabel;
   var sources = [];
   var gray = !!cfg.gray;   // 자산건전성처럼 비교선을 회색 계열로 그리는 차트
+  var suffix = el.dataset.unit === '%' ? '%' : el.dataset.unit;   // '배' 같은 단위는 그대로 붙임
   if (!isAll) sources.push({name: kisShort(KIS.company), s: ser, color: '#2980B9', width: 2.8, dash: 'solid'});
   sources.push({name: '업권 전체', s: all, color: gray ? '#666666' : '#555555', width: 2.2, dash: 'dot'});
   sources.push({name: KIS.d.ratedLabel, s: rated, color: gray ? '#B0B0B0' : '#ED7D31', width: 2.2, dash: 'dash'});
@@ -333,11 +334,11 @@ function kisRenderCmp3(el, ser, idx) {
   var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
   var traces = sources.map(function(src){
     return {x: x, y: idxC.map(function(i){ return src.s[k][i]; }), type: 'scatter', mode: 'lines', name: src.name, connectgaps: true,
-            line: {color: src.color, width: src.width, dash: src.dash}, hovertemplate: '%{x}<br>' + src.name + ' %{y:.2f}%<extra></extra>'};
+            line: {color: src.color, width: src.width, dash: src.dash}, hovertemplate: '%{x}<br>' + src.name + ' %{y:.2f}' + suffix + '<extra></extra>'};
   });
   plotReact(el.id, traces, {
     height: 340, margin: {t: 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
-    yaxis: {ticksuffix: '%'}, legend: {}
+    yaxis: {ticksuffix: suffix === '%' ? '%' : ''}, legend: {}
   }, {displaylogo: false, responsive: true});
 }
 

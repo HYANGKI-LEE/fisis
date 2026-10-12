@@ -1352,6 +1352,16 @@ function industryAverage(data, metric, idx) {
   });
 }
 
+function groupAverage(data, metric, idx, names) {
+  return idx.map(function(i){
+    var sum = 0, n = 0;
+    names.forEach(function(c){
+      var v = data.series[c] && data.series[c][metric] ? data.series[c][metric][i] : null;
+      if (v !== null && v !== undefined) { sum += v; n += 1; }
+    });
+    return n ? sum / n : null;
+  });
+}
 function renderAllCrTrends(sector) {
   CR_METRICS_JS.forEach(function(m, i){ renderCrTrend(sector, i, m); });
 }
@@ -1375,6 +1385,10 @@ function renderCrTrend(sector, i, metric) {
   if (metric !== '총자산시장점유율') {   // 시장점유율의 업권 평균은 의미가 없어서 제외
     crTraces.push({x:quarters, y:avgVals, mode:'lines+markers', connectgaps:true, name:'업권 평균',
                    line:{color:'#999', dash:'dot'}});
+    if (data.rated && data.rated.length) {   // 회사를 고르면 신평사 유효등급 보유사 평균도 같이 표시
+      crTraces.push({x:quarters, y:groupAverage(data, metric, idx, data.rated), mode:'lines+markers', connectgaps:true,
+                     name:'신평사 유효등급 ' + data.rated.length + '개사 평균', line:{color:'#B0B0B0', dash:'dash'}});
+    }
   }
   crTraces.push({x:quarters, y:companyVals, mode:'lines+markers', connectgaps:true, name:shortName(sector, company),
                  line:{color:'#2980B9', width:2.5}});
