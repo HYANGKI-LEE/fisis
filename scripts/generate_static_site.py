@@ -339,7 +339,7 @@ CR_BAR_NOTE = ("대출이자수익률 = 연환산(×4) 당분기 대출금 이�
                "ROA·충당금적립전영업이익률은 분기마다 연율화(당분기 금액 ×4 ÷ 총자산 분기 평잔)해서 계산하고, "
                "(4분기누적) 지표는 최근 4개 분기 합계 ÷ 총자산 평잔(기초~당분기말 5개 분기말 평균)이에요.")
 
-RANGE_PRESETS = ["1Y", "3Y", "5Y", "10Y", "전체", "설정"]
+RANGE_PRESETS = kis_charts.PERIOD_PRESETS
 
 RATED_CSV = REPO_DIR / "output" / "(E)상호저축은행" / "신용등급_전체80개사.csv"
 
@@ -867,7 +867,7 @@ def render_profitability_tab(kis_payload: dict, sector_key: str) -> str:
     scope = f"{sector_key}-prof"
     payload = (f'<script type="application/json" id="data-{scope}">'
                f'{json.dumps(data, ensure_ascii=False, separators=(",", ":"))}</script>')
-    presets = ["1Y", "3Y", "5Y", "전체", "설정"]
+    presets = kis_charts.PERIOD_PRESETS
     btns = "".join(
         f'<button data-preset="{p}" onclick="{"profCustomToggle" if p == "설정" else "profPreset"}'
         f'(\'{scope}\'{"" if p == "설정" else f",\'{p}\'"},this)">{p}</button>'
@@ -1181,10 +1181,10 @@ function initCrSector(sector) {
   var el = document.getElementById('data-' + sector);
   if (!el) return;
   SECTOR_DATA[sector] = JSON.parse(el.textContent);
-  CR_RANGE[sector] = {preset: '5Y', start: null, end: null};
+  CR_RANGE[sector] = {preset: '5년', start: null, end: null};
   renderCrBarChart(sector);
-  var btn = document.querySelector('.period-bar[data-scope="' + sector + '"] button[data-preset="5Y"]');
-  applyCrPeriod(sector, '5Y', btn);
+  var btn = document.querySelector('.period-bar[data-scope="' + sector + '"] button[data-preset="5년"]');
+  applyCrPeriod(sector, '5년', btn);
 }
 function onCrChange(sector) { renderCrBarChart(sector); renderAllCrTrends(sector); }
 
@@ -1315,7 +1315,7 @@ function crRangeIndices(sector) {
     if (s === -1 || e === -1) return data.quarters.map(function(_, i){ return i; });
     return data.quarters.map(function(_, i){ return i; }).filter(function(i){ return i >= s && i <= e; });
   }
-  var years = {'1Y':1, '3Y':3, '5Y':5, '10Y':10}[r.preset] || 5;
+  var years = /^[0-9]+년$/.test(r.preset) ? parseInt(r.preset, 10) : 5;
   var start = quarterIndexFromEnd(data.quarters, years);
   return data.quarters.map(function(_, i){ return i; }).filter(function(i){ return i >= start; });
 }
@@ -1695,7 +1695,7 @@ function profIndices(scope) {
     if (s !== -1 && e !== -1) return all.filter(function(i){ return i >= s && i <= e; });
     return all;
   }
-  var years = {'1Y': 1, '3Y': 3, '5Y': 5}[st.preset];
+  var years = /^[0-9]+년$/.test(st.preset) ? parseInt(st.preset, 10) : 0;
   if (!years) return all;
   var start = Math.max(0, n - years * 4);
   return all.filter(function(i){ return i >= start; });

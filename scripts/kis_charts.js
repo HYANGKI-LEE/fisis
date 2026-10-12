@@ -98,7 +98,7 @@ function kisIndices() {
     if (s !== -1 && e !== -1) return all.filter(function(i){ return i >= s && i <= e; });
     return all;
   }
-  var years = {'1Y': 1, '3Y': 3, '5Y': 5}[KIS.preset];
+  var years = /^[0-9]+년$/.test(KIS.preset) ? parseInt(KIS.preset, 10) : 0;
   if (!years) return all;
   var start = Math.max(0, n - years * 4);
   return all.filter(function(i){ return i >= start; });

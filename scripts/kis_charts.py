@@ -40,6 +40,9 @@ TAB_SECTIONS = {
     "유동성": ["liquidity"],
 }
 
+# 모든 기간 선택 버튼 공통 (숫자+년 = 최근 N년)
+PERIOD_PRESETS = ["1년", "2년", "3년", "4년", "5년", "7년", "10년", "전체", "설정"]
+
 # 탭별 차트 열 수 (기본 2열)
 TAB_COLUMNS = {}   # 기본 3열
 DEFAULT_COLUMNS = 3
@@ -532,7 +535,7 @@ def render_kis_table(tab_label: str) -> str:
 
 
 def render_kis_controls() -> str:
-    presets = ["1Y", "3Y", "5Y", "전체", "설정"]
+    presets = PERIOD_PRESETS
     btns = "".join(
         f'<button data-preset="{p}" onclick="{"kisCustomToggle" if p == "설정" else "kisPreset"}'
         f'({"this" if p == "설정" else f"\'{p}\',this"})">{p}</button>'
