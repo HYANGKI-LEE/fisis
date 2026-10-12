@@ -287,7 +287,8 @@ function kisRenderScatter(el, idx) {
   }
   var a = S[allLabel] || {};
   if (a[cfg.x] && a[cfg.y] && a[cfg.x][qi] !== null) {
-    traces.push({x: [a[cfg.x][qi]], y: [a[cfg.y][qi]], mode: 'markers', type: 'scatter', name: '업권 전체',
+    traces.push({x: [a[cfg.x][qi]], y: [a[cfg.y][qi]], mode: 'markers+text', type: 'scatter', name: '업권 전체',
+                 text: ['전체'], textposition: 'top center', textfont: {size: 11, color: '#111'},
                  marker: {color: '#111', size: 11, symbol: 'x'},
                  hovertemplate: '업권 전체<br>' + cfg.xl.replace(' (%)','') + ' %{x:.1f}% / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'});
   }
@@ -362,38 +363,34 @@ function kisRenderDual(el, ser, idx) {
   }, {displaylogo: false, responsive: true});
 }
 
-// 수익성 표: 최근 5개 연도(12월) + 4분기 전 + 당분기 (선택 회사 기준)
-var KIS_PROFIT_ROWS = [
-  {n: '총자산 평잔', u: 'eok', fy: 'pf_avg5', q: 'pf_avg'},
-  {n: '총자산이익률(ROA)', u: 'pct', fy: 'pf_roa4', q: 'pf_roa'},
-  {n: 'PPOP/총자산평잔', u: 'pct', fy: 'pf_ppop4', q: 'pf_ppop'},
-  {n: '순이자마진(NIM)', u: 'pct', fy: 'pf_nim4', q: 'pf_nim'},
-  {n: '대손비용률', u: 'pct', fy: 'pf_prov4', q: 'pf_prov'},
-  {n: '판관비율', u: 'pct', fy: 'pf_sga4', q: 'pf_sga'}
-];
+// 탭별 상단 표(수익성/자산건전성/자본적정성): 최근 5개 연도(12월) + 4분기 전 + 당분기 (선택 회사 기준)
 function kisQLabel(q) {   // '2026.Q2' -> '2026.06'
   var m = q.match(/^(\d{4})\.Q(\d)$/);
   return m ? m[1] + '.' + ('0' + (parseInt(m[2], 10) * 3)).slice(-2) : q;
 }
 function kisRenderTable() {
-  var tb = document.getElementById('kisProfitTable');
-  if (!tb || tb.offsetParent === null || tb.dataset.v === String(KIS.version)) return;
-  tb.dataset.v = String(KIS.version);
-  var q = KIS.d.quarters, L = q.length - 1, ser = KIS.d.series[KIS.company] || {};
-  var fy = [];
-  for (var i = L; i >= 0 && fy.length < 5; i--) { if (q[i].slice(-2) === 'Q4') fy.unshift(i); }
-  var cols = fy.map(function(i){ return {i: i, fy: true}; });
-  cols.push({i: L - 4, fy: false});
-  cols.push({i: L, fy: false});
-  var fmt = function(v, u) {
-    if (v === null || v === undefined) return '-';
-    return u === 'eok' ? v.toLocaleString('ko-KR', {maximumFractionDigits: 0}) : v.toFixed(1) + '%';
-  };
-  tb.querySelector('thead').innerHTML = '<tr><th>구분</th>' + cols.map(function(c){ return '<th>' + kisQLabel(q[c.i]) + '</th>'; }).join('') + '</tr>';
-  tb.querySelector('tbody').innerHTML = KIS_PROFIT_ROWS.map(function(r){
-    return '<tr><td>' + r.n + '</td>' + cols.map(function(c){
-      var arr = ser[c.fy ? r.fy : r.q];
-      return '<td>' + fmt(arr ? arr[c.i] : null, r.u) + '</td>';
-    }).join('') + '</tr>';
-  }).join('');
+  document.querySelectorAll('.kis-table').forEach(function(tb){
+    if (tb.offsetParent === null || tb.dataset.v === String(KIS.version)) return;
+    tb.dataset.v = String(KIS.version);
+    var rows = JSON.parse(tb.dataset.rows);
+    var q = KIS.d.quarters, L = q.length - 1, ser = KIS.d.series[KIS.company] || {};
+    var fy = [];
+    for (var i = L; i >= 0 && fy.length < 5; i--) { if (q[i].slice(-2) === 'Q4') fy.unshift(i); }
+    var cols = fy.map(function(i){ return {i: i, fy: true}; });
+    cols.push({i: L - 4, fy: false});
+    cols.push({i: L, fy: false});
+    var fmt = function(v, u) {
+      if (v === null || v === undefined) return '-';
+      if (u === 'eok') return v.toLocaleString('ko-KR', {maximumFractionDigits: 0});
+      if (u === 'x') return v.toFixed(1);
+      return v.toFixed(1) + '%';
+    };
+    tb.querySelector('thead').innerHTML = '<tr><th>구분</th>' + cols.map(function(c){ return '<th>' + kisQLabel(q[c.i]) + '</th>'; }).join('') + '</tr>';
+    tb.querySelector('tbody').innerHTML = rows.map(function(r){
+      return '<tr><td>' + r.n + '</td>' + cols.map(function(c){
+        var arr = ser[c.fy ? r.fy : r.q];
+        return '<td>' + fmt(arr ? arr[c.i] : null, r.u) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+  });
 }

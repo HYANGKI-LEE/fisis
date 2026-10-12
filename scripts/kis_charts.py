@@ -478,10 +478,58 @@ PROFIT_TABLE_NOTE = (
     "대손비용률·PPOP는 2016.Q1부터 가능해서 그 이전 연도는 비어 있어요.")
 
 
-def render_profit_table() -> str:
-    """수익성 탭 맨 위 표 (내용은 JS가 선택 회사에 맞춰 채움)."""
-    return ('<div class="kis-table-wrap"><table class="kis-table" id="kisProfitTable"><thead></thead><tbody></tbody></table></div>'
-            f'<p class="caption">{PROFIT_TABLE_NOTE}</p>')
+# 탭별 상단 표: (이름, 단위, 연도(12월) 열 키, 분기 열 키). 잔액형 항목은 두 키가 같다.
+TAB_TABLES = {
+    "수익성": {
+        "title": "수익성 (단위: %, 총자산 평잔: 억원)",
+        "note": PROFIT_TABLE_NOTE,
+        "rows": [
+            ("총자산 평잔", "eok", "pf_avg5", "pf_avg"),
+            ("총자산이익률(ROA)", "pct", "pf_roa4", "pf_roa"),
+            ("PPOP/총자산평잔", "pct", "pf_ppop4", "pf_ppop"),
+            ("순이자마진(NIM)", "pct", "pf_nim4", "pf_nim"),
+            ("대손비용률", "pct", "pf_prov4", "pf_prov"),
+            ("판관비율", "pct", "pf_sga4", "pf_sga"),
+        ],
+    },
+    "자산건전성": {
+        "title": "자산건전성 (단위: 억원, %)",
+        "note": "연도(12월) 열은 해당 연도 12월 말, 4분기 전·당분기 열은 해당 분기 말 값이에요. "
+                "연체율 = 연체액 ÷ 총여신, 고정이하여신비율 = 고정이하여신 ÷ 총여신, 대손충당금/고정이하여신 = 대손충당금적립잔액 ÷ 고정이하분류여신.",
+        "rows": [
+            ("총여신", "eok", "aq_loan", "aq_loan"),
+            ("고정이하여신", "eok", "aq_sub", "aq_sub"),
+            ("대손충당금", "eok", "aq_allow", "aq_allow"),
+            ("연체액", "eok", "aq_over", "aq_over"),
+            ("연체율", "pct", "aq_overr", "aq_overr"),
+            ("고정이하여신비율", "pct", "aq_subr", "aq_subr"),
+            ("대손충당금/고정이하여신", "pct", "aq_cov", "aq_cov"),
+        ],
+    },
+    "자본적정성": {
+        "title": "자본적정성 (단위: 억원, %, 배)",
+        "note": "연도(12월) 열은 해당 연도 12월 말, 4분기 전·당분기 열은 해당 분기 말 값이에요. "
+                "BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산, 레버리지배율 = 자산총계 ÷ 자본총계.",
+        "rows": [
+            ("위험가중자산", "eok", "cp_rwa", "cp_rwa"),
+            ("BIS기준 자기자본", "eok", "cp_cap", "cp_cap"),
+            ("BIS기준 자기자본비율", "pct", "cp_bis", "cp_bis"),
+            ("레버리지배율", "x", "cp_lev", "cp_lev"),
+        ],
+    },
+}
+
+
+def render_kis_table(tab_label: str) -> str:
+    """탭 맨 위 표 (내용은 JS가 선택 회사에 맞춰 채움)."""
+    t = TAB_TABLES.get(tab_label)
+    if not t:
+        return ""
+    rows = [{"n": n, "u": u, "fy": fy, "q": q} for n, u, fy, q in t["rows"]]
+    return (f'<h4>{t["title"]}</h4>'
+            f'<div class="kis-table-wrap"><table class="kis-table" data-rows=\'{json.dumps(rows, ensure_ascii=False)}\'>'
+            '<thead></thead><tbody></tbody></table></div>'
+            f'<p class="caption">{t["note"]}</p>')
 
 
 def render_kis_controls() -> str:
@@ -513,8 +561,7 @@ def render_kis_block(tab_label: str) -> str:
     parts = ['<hr style="border:none;border-top:1px solid var(--border);margin:28px 0 8px;">',
              '<p class="caption">아래는 저축은행 Data Package(한국신용평가 양식) 항목이에요. 회사와 기간은 모든 탭에 공통 적용돼요.</p>',
              render_kis_controls()]
-    if tab_label == "수익성":
-        parts.append('<h4>수익성 (단위: %, 총자산 평잔: 억원)</h4>' + render_profit_table())
+    parts.append(render_kis_table(tab_label))
 
     def cell(key, name, unit, kind, extra):
         if kind == "empty":
