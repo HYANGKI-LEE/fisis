@@ -316,9 +316,10 @@ function kisRenderCmp3(el, ser, idx) {
   var all = S[KIS.d.allLabel] || {}, rated = S[KIS.d.ratedLabel] || {};
   var isAll = KIS.company === KIS.d.allLabel;
   var sources = [];
+  var gray = !!cfg.gray;   // 자산건전성처럼 비교선을 회색 계열로 그리는 차트
   if (!isAll) sources.push({name: kisShort(KIS.company), s: ser, color: '#2980B9', width: 2.8, dash: 'solid'});
-  sources.push({name: '업권 전체', s: all, color: '#555555', width: 2.2, dash: 'dot'});
-  sources.push({name: KIS.d.ratedLabel, s: rated, color: '#ED7D31', width: 2.2, dash: 'dash'});
+  sources.push({name: '업권 전체', s: all, color: gray ? '#666666' : '#555555', width: 2.2, dash: 'dot'});
+  sources.push({name: KIS.d.ratedLabel, s: rated, color: gray ? '#B0B0B0' : '#ED7D31', width: 2.2, dash: 'dash'});
   sources = sources.filter(function(src){ return src.s[k]; });
   var firstOk = idx.length;
   sources.forEach(function(src){
