@@ -118,6 +118,7 @@ function kisRenderVisible() {
     if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
     if (el.dataset.scatter) { kisRenderScatter(el, idx); return; }
     if (el.dataset.cmp3) { kisRenderCmp3(el, ser, idx); return; }
+    if (el.dataset.cmp3m) { kisRenderCmp3m(el, ser, idx); return; }
     if (el.dataset.dual) { kisRenderDual(el, ser, idx); return; }
     if (el.dataset.cmp) { kisRenderCmp(el, ser, idx); return; }
     if (el.dataset.dist) { kisRenderDist(el, ser, idx); return; }
@@ -394,4 +395,34 @@ function kisRenderTable() {
       }).join('') + '</tr>';
     }).join('');
   });
+}
+
+// 여러 지표를 한 차트에: 지표별 색, 선택 회사(실선) / 업권 전체(점선) / 신평사 유효등급 보유사(파선)
+function kisRenderCmp3m(el, ser, idx) {
+  var cfg = JSON.parse(el.dataset.cmp3m), S = KIS.d.series;
+  var all = S[KIS.d.allLabel] || {}, rated = S[KIS.d.ratedLabel] || {};
+  var isAll = KIS.company === KIS.d.allLabel;
+  var lines = [];
+  cfg.ks.forEach(function(m){
+    if (!isAll && ser[m.k]) lines.push({name: m.n + ' · ' + kisShort(KIS.company), v: ser[m.k], color: m.c, width: 2.8, dash: 'solid'});
+    if (all[m.k]) lines.push({name: m.n + (isAll ? '' : ' · 업권 전체'), v: all[m.k], color: m.c, width: 2.2, dash: isAll ? 'solid' : 'dot'});
+    if (rated[m.k]) lines.push({name: m.n + ' · 유효등급 ' + (KIS.d.ratedLabel.match(/[0-9]+/) || [''])[0] + '개사', v: rated[m.k], color: m.c, width: 2.2, dash: 'dash'});
+  });
+  var firstOk = idx.length;
+  lines.forEach(function(l){
+    var j = 0;
+    while (j < idx.length && (l.v[idx[j]] === null || l.v[idx[j]] === undefined)) j++;
+    if (j < firstOk) firstOk = j;
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var traces = lines.map(function(l){
+    return {x: x, y: idxC.map(function(i){ return l.v[i]; }), type: 'scatter', mode: 'lines', name: l.name, connectgaps: true,
+            line: {color: l.color, width: l.width, dash: l.dash}, hovertemplate: '%{x}<br>' + l.name + ' %{y:.2f}%<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    height: 340, margin: {t: 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+    yaxis: {ticksuffix: '%'}, legend: {}
+  }, {displaylogo: false, responsive: true});
 }
