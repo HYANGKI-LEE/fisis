@@ -904,7 +904,7 @@ def render_profitability_tab(kis_payload: dict, sector_key: str) -> str:
 
 
 def render_placeholder_tab(label: str) -> str:
-    return f'<p class="caption">"{label}" 탭은 준비 중이에요. 곧 채워질 예정입니다.</p>'
+    return ""   # 아직 비어 있는 탭에도 안내 문구는 넣지 않음
 
 
 def render_savings_bank_page(sector_key: str, sector: str) -> str:

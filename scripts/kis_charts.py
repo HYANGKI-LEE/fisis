@@ -591,9 +591,7 @@ def render_kis_block(tab_label: str) -> str:
     sections = TAB_SECTIONS.get(tab_label)
     if not sections:
         return ""
-    parts = ['<hr style="border:none;border-top:1px solid var(--border);margin:28px 0 8px;">',
-             '<p class="caption">아래는 저축은행 Data Package(한국신용평가 양식) 항목이에요. 회사와 기간은 모든 탭에 공통 적용돼요.</p>',
-             render_kis_controls()]
+    parts = [render_kis_controls()]
     if tab_label == "자본적정성":
         parts.append(
             '<div class="control-row" style="margin-top:8px;"><label>목표 BIS비율(%) '
