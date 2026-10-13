@@ -222,6 +222,11 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     add_ratio("pf_roa", ni * ann, avg_asset)
     add_ratio("pf_ppop", (op + prov_exp) * ann, avg_asset)
     add_ratio("pf_nim", interest * ann, avg_earn)
+    # 운용금리 = 이자수익 / 이자수익자산 평잔, 조달금리 = 이자비용 / 이자부담부채(예수부채+차입부채) 평잔 (모두 연율화)
+    fund = fill0(dep) + fill0(borrow)
+    avg_fund = (fund + lag(fund)) / 2
+    add_ratio("pf_yield", P("A1") * ann, avg_earn)
+    add_ratio("pf_cost", P("B1") * ann, avg_fund)
     prov_cost = prov_exp + fill0(P("B53")) - fill0(P("A24D0")) - fill0(P("A4"))
     add_ratio("pf_prov", prov_cost * ann, avg_asset)
     add_ratio("pf_sga", sga * ann, avg_asset)
@@ -328,6 +333,11 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
         if any(v is not None for v in vals):
             series[rated_label][key] = vals
 
+    for label, ser_d in series.items():
+        ya, yb = ser_d.get("pf_yield"), ser_d.get("pf_cost")
+        if ya and yb:
+            ser_d["pf_spread"] = [None if (a is None or b is None) else round(a - b, 3) for a, b in zip(ya, yb)]
+
     asset_latest = base[cal[-1]].fillna(0)
     companies_sorted = sorted(companies, key=lambda c: -asset_latest.get(c, 0))
     return {
@@ -387,6 +397,10 @@ SECTIONS = {
         ("pf_c_prov", "대손비용률", "%", "cmp3", {"k": "pf_prov"}),
         ("pf_c_prov4", "대손비용률 (4분기 누적)", "%", "cmp3", {"k": "pf_prov4"}),
         ("pf_c_sga", "판관비율", "%", "cmp3", {"k": "pf_sga"}),
+        ("pf_c_yc", "운용금리·조달금리 추이", "%", "cmp3m",
+         {"ks": [{"k": "pf_yield", "n": "운용금리", "c": "#2980B9"}, {"k": "pf_cost", "n": "조달금리", "c": "#E8312F"}]}),
+        ("pf_c_spread", "스프레드 (운용금리 - 조달금리)", "%", "cmp3", {"k": "pf_spread"}),
+        ("e_pf2", "", "", "empty", None),
         ("pf_c_nimprov4", "순이자마진(NIM)·대손비용률 (4분기 누적)", "%", "cmp3m",
          {"ks": [{"k": "pf_nim4", "n": "NIM", "c": "#2980B9"}, {"k": "pf_prov4", "n": "대손비용률", "c": "#E8312F"}]}),
     ])],
@@ -459,6 +473,8 @@ CHART_NOTES = {
     "pf_c_sga": "판관비율 = 판매비와관리비 ×4 ÷ 총자산 분기 평잔.",
     "pf_c_ppop4": "(4분기 누적) = 최근 4개 분기 (영업이익+대손상각비) 합계 ÷ 기초~기말 5개 분기말 평균 평잔. 2016.Q4부터 가능해요.",
     "pf_c_prov4": "(4분기 누적) = 최근 4개 분기 대손비용 합계 ÷ 기초~기말 5개 분기말 평균 평잔. 2016.Q4부터 가능해요.",
+    "pf_c_yc": "운용금리 = 이자수익 ×4 ÷ 이자수익자산(현금및예치금+유가증권+대출채권+미수금+미수수익) 분기 평잔, 조달금리 = 이자비용 ×4 ÷ 이자부담부채(예수부채+차입부채) 분기 평잔. 파랑: 운용금리, 빨강: 조달금리 / 실선: 선택 회사, 점선: 업권 전체, 파선: 신평사 유효등급 보유사.",
+    "pf_c_spread": "스프레드 = 운용금리 - 조달금리 (순이자마진과 비슷하지만 분모가 달라요).",
     "pf_c_nimprov4": "NIM과 대손비용률을 4분기 누적 기준으로 한 차트에 그렸어요. 파랑: NIM, 빨강: 대손비용률 / 실선: 선택 회사, 점선: 업권 전체, 파선: 신평사 유효등급 보유사.",
     "is_total": "Data Package 표에서 총영업이익은 영업이익과 같은 값이라 같은 값으로 그렸어요.",
     "is_sec": "유가증권관련이익 = 유가증권관련수익 - 유가증권관련비용.",
