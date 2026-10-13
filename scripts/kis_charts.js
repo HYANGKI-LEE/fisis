@@ -18,7 +18,7 @@ function kisInit() {
   if (KIS) return true;
   var el = document.getElementById('kis-data');
   if (!el) return false;
-  KIS = {d: JSON.parse(el.textContent), company: null, preset: '전체', start: null, end: null, version: 0};
+  KIS = {d: JSON.parse(el.textContent), company: null, preset: '전체', start: null, end: null, version: 0, target: 8};
   KIS.company = KIS.d.allLabel;
   kisFillList(false);
   document.querySelectorAll('.period-bar button[data-preset="전체"]').forEach(function(b){
@@ -119,6 +119,7 @@ function kisRenderVisible() {
     if (el.dataset.scatter) { kisRenderScatter(el, idx); return; }
     if (el.dataset.cmp3) { kisRenderCmp3(el, ser, idx); return; }
     if (el.dataset.cmp3m) { kisRenderCmp3m(el, ser, idx); return; }
+    if (el.dataset.buf) { kisRenderBuf(el, ser, idx); return; }
     if (el.dataset.dual) { kisRenderDual(el, ser, idx); return; }
     if (el.dataset.cmp) { kisRenderCmp(el, ser, idx); return; }
     if (el.dataset.dist) { kisRenderDist(el, ser, idx); return; }
@@ -389,8 +390,10 @@ function kisRenderTable() {
     };
     tb.querySelector('thead').innerHTML = '<tr><th>구분</th>' + cols.map(function(c){ return '<th>' + kisQLabel(q[c.i]) + '</th>'; }).join('') + '</tr>';
     tb.querySelector('tbody').innerHTML = rows.map(function(r){
-      return '<tr><td>' + r.n + '</td>' + cols.map(function(c){
-        var arr = ser[c.fy ? r.fy : r.q];
+      return '<tr><td>' + r.n.replace('목표 BIS비율', '목표 BIS ' + KIS.target + '%') + '</td>' + cols.map(function(c){
+        var key = c.fy ? r.fy : r.q;
+        if (key.indexOf('calc:') === 0) return '<td>' + fmt(kisBufValue(ser, c.i, key.slice(5)), r.u) + '</td>';
+        var arr = ser[key];
         return '<td>' + fmt(arr ? arr[c.i] : null, r.u) + '</td>';
       }).join('') + '</tr>';
     }).join('');
@@ -424,5 +427,68 @@ function kisRenderCmp3m(el, ser, idx) {
   plotReact(el.id, traces, {
     height: 340, margin: {t: 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
     yaxis: {ticksuffix: '%'}, legend: {}
+  }, {displaylogo: false, responsive: true});
+}
+
+// ---- 목표 BIS비율 도달 시 자본 감소 여력 (위험가중자산 불변, 세금 효과 없음 가정)
+function kisSetTarget(el) {
+  if (!kisInit()) return;
+  var v = parseFloat(el.value);
+  if (!isFinite(v) || v < 0) return;
+  KIS.target = v;
+  document.querySelectorAll('.kis-target').forEach(function(i){ if (i !== el) i.value = el.value; });
+  KIS.version++;
+  kisRenderVisible();
+}
+function kisBufValue(src, i, type) {
+  var cap = src.cp_cap ? src.cp_cap[i] : null, rwa = src.cp_rwa ? src.cp_rwa[i] : null;
+  if (cap === null || cap === undefined || rwa === null || rwa === undefined) return null;
+  var need = KIS.target / 100 * rwa, buf = cap - need;
+  if (type === 'need') return need;
+  if (type === 'buf') return buf;
+  var base = type === 'loan' ? (src.aq_loan ? src.aq_loan[i] : null) : (src.aq_sub ? src.aq_sub[i] : null);
+  return (base && base > 0) ? buf / base * 100 : null;
+}
+function kisRenderBuf(el, ser, idx) {
+  var cfg = JSON.parse(el.dataset.buf), S = KIS.d.series, mode = cfg.mode;
+  var all = S[KIS.d.allLabel] || {}, rated = S[KIS.d.ratedLabel] || {};
+  var isAll = KIS.company === KIS.d.allLabel;
+  var sub = '목표 BIS비율 ' + KIS.target + '%';
+  if (mode === 'amt') {   // 금액은 규모 차이가 커서 선택 회사(전체 선택 시 업권 전체)만 막대로
+    var src = isAll ? all : ser;
+    var firstA = 0;
+    var vals = idx.map(function(i){ return kisBufValue(src, i, 'buf'); });
+    while (firstA < vals.length && vals[firstA] === null) firstA++;
+    if (firstA >= vals.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+    var xa = idx.slice(firstA).map(function(i){ return KIS.d.quarters[i]; }), ya = vals.slice(firstA);
+    plotReact(el.id, [{x: xa, y: ya, type: 'bar', name: '자본 감소 여력',
+                       marker: {color: ya.map(function(v){ return v !== null && v < 0 ? '#E8312F' : '#2980B9'; })},
+                       hovertemplate: '%{x}<br>자본 감소 여력 %{y:,.0f}억원<extra></extra>'}], {
+      height: 340, margin: {t: 60, b: 60, l: 60, r: 10}, title: kisTitle(el, sub), xaxis: kisXAxis(xa.length),
+      yaxis: {tickformat: ','}, showlegend: false
+    }, {displaylogo: false, responsive: true});
+    return;
+  }
+  var sources = [];
+  if (!isAll) sources.push({name: kisShort(KIS.company), s: ser, color: '#2980B9', width: 2.8, dash: 'solid'});
+  sources.push({name: '업권 전체', s: all, color: '#666666', width: 2.2, dash: 'dot'});
+  sources.push({name: KIS.d.ratedLabel, s: rated, color: '#B0B0B0', width: 2.2, dash: 'dash'});
+  var firstOk = idx.length;
+  var lines = sources.map(function(src){
+    var v = idx.map(function(i){ return kisBufValue(src.s, i, mode); });
+    var j = 0; while (j < v.length && v[j] === null) j++;
+    if (j < firstOk) firstOk = j;
+    return {src: src, v: v};
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var x = idx.slice(firstOk).map(function(i){ return KIS.d.quarters[i]; });
+  var traces = lines.map(function(l){
+    return {x: x, y: l.v.slice(firstOk), type: 'scatter', mode: 'lines', name: l.src.name, connectgaps: true,
+            line: {color: l.src.color, width: l.src.width, dash: l.src.dash},
+            hovertemplate: '%{x}<br>' + l.src.name + ' %{y:.1f}%<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    height: 340, margin: {t: 60, b: 60, l: 55, r: 10}, title: kisTitle(el, sub), xaxis: kisXAxis(x.length),
+    yaxis: {ticksuffix: '%', zeroline: true, zerolinecolor: '#999'}, legend: {}
   }, {displaylogo: false, responsive: true});
 }

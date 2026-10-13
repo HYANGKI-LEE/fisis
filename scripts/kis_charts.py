@@ -454,9 +454,14 @@ SECTIONS = {
          {"x": "bw_cred_sh", "y": "bw_conre_sh", "xl": "신용대출 비중 (%)", "yl": "건설업+부동산업 비중 (대출금 합계 대비, %)"}),
     ])],
     # 자본적정성: 선택 회사(색) + 업권 전체·신평사 유효등급 보유사(회색 선) 비교 (위험가중자산·BIS 자기자본 금액 차트는 삭제)
+    # 자본적정성: BIS비율/레버리지(비교선) + 목표 BIS비율 도달 시 자본 감소 여력(금액, 총여신 대비, 고정이하여신 대비)
     "capital": [(None, [
         ("cp_bis", "BIS기준 자기자본비율", "%", "cmp3", {"k": "cp_bis", "gray": True}),
         ("cp_lev", "레버리지배율", "배", "cmp3", {"k": "cp_lev", "gray": True}),
+        ("e_cp1", "", "", "empty", None),
+        ("cp_c_buf", "목표 BIS비율 도달 시 자본 감소 여력", "억원", "buf", {"mode": "amt"}),
+        ("cp_c_bufloan", "자본 감소 여력 / 총여신", "%", "buf", {"mode": "loan"}),
+        ("cp_c_bufsub", "자본 감소 여력 / 고정이하여신", "%", "buf", {"mode": "sub"}),
     ])],
     "liquidity": [(None, [
         ("lq_ratio", "유동성비율", "%", "cmp3", {"k": "lq_ratio", "gray": True}),
@@ -473,6 +478,9 @@ CHART_NOTES = {
     "pf_c_sga": "판관비율 = 판매비와관리비 ×4 ÷ 총자산 분기 평잔.",
     "pf_c_ppop4": "(4분기 누적) = 최근 4개 분기 (영업이익+대손상각비) 합계 ÷ 기초~기말 5개 분기말 평균 평잔. 2016.Q4부터 가능해요.",
     "pf_c_prov4": "(4분기 누적) = 최근 4개 분기 대손비용 합계 ÷ 기초~기말 5개 분기말 평균 평잔. 2016.Q4부터 가능해요.",
+    "cp_c_buf": "자본 감소 여력 = BIS기준 자기자본 - (목표 BIS비율 × 위험가중자산). 위험가중자산이 변하지 않고 세금 효과가 없다는 가정에서, 목표 BIS비율에 도달하기까지 추가로 줄어들 수 있는 자기자본(= 필요한 추가 손실)이에요. 음수면 이미 목표 미만이에요.",
+    "cp_c_bufloan": "자본 감소 여력을 총여신(FISIS 여신건전성 통계)으로 나눈 값이에요. 총여신의 몇 %가 추가로 손실이 나면 목표 BIS비율에 도달하는지 보여줘요. 회사를 고르면 업권 전체·신평사 유효등급 보유사와 비교해요.",
+    "cp_c_bufsub": "자본 감소 여력을 고정이하여신으로 나눈 값이에요. 고정이하여신 대비 몇 %의 손실을 흡수할 수 있는지 보여줘요(100%면 고정이하여신 전액 손실에 해당).",
     "pf_c_yc": "운용금리 = 이자수익 ×4 ÷ 이자수익자산(현금및예치금+유가증권+대출채권+미수금+미수수익) 분기 평잔, 조달금리 = 이자비용 ×4 ÷ 이자부담부채(예수부채+차입부채) 분기 평잔. 파랑: 운용금리, 빨강: 조달금리 / 실선: 선택 회사, 점선: 업권 전체, 파선: 신평사 유효등급 보유사.",
     "pf_c_spread": "스프레드 = 운용금리 - 조달금리 (순이자마진과 비슷하지만 분모가 달라요).",
     "pf_c_nimprov4": "NIM과 대손비용률을 4분기 누적 기준으로 한 차트에 그렸어요. 파랑: NIM, 빨강: 대손비용률 / 실선: 선택 회사, 점선: 업권 전체, 파선: 신평사 유효등급 보유사.",
@@ -482,7 +490,7 @@ CHART_NOTES = {
     "aq_overr": "연체율 = 연체액 ÷ 총여신.",
     "aq_subr": "고정이하여신비율 = 고정이하여신 ÷ 총여신.",
     "aq_cov": "대손충당금/고정이하여신 = 대손충당금적립잔액 ÷ 고정이하분류여신.",
-    "cp_bis": "BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산.",
+    "cp_bis": "BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산. BIS기준 자기자본 = 기본자본(자본금+자본잉여금+이익잉여금+외부주주지분-공제항목) + 보완자본(후순위채무+재평가적립금+매도가능증권 평가이익 등+대손충당금+기타) + 경영정상화 장기차입금 - 공제항목.",
     "cp_lev": "레버리지배율 = 자산총계 ÷ 자본총계.",
 }
 
@@ -538,6 +546,10 @@ TAB_TABLES = {
             ("BIS기준 자기자본", "eok", "cp_cap", "cp_cap"),
             ("BIS기준 자기자본비율", "pct", "cp_bis", "cp_bis"),
             ("레버리지배율", "x", "cp_lev", "cp_lev"),
+            ("목표 BIS비율 필요 자기자본", "eok", "calc:need", "calc:need"),
+            ("자본 감소 여력", "eok", "calc:buf", "calc:buf"),
+            ("감소 여력 / 총여신", "pct", "calc:loan", "calc:loan"),
+            ("감소 여력 / 고정이하여신", "pct", "calc:sub", "calc:sub"),
         ],
     },
 }
@@ -584,13 +596,19 @@ def render_kis_block(tab_label: str) -> str:
     parts = ['<hr style="border:none;border-top:1px solid var(--border);margin:28px 0 8px;">',
              '<p class="caption">아래는 저축은행 Data Package(한국신용평가 양식) 항목이에요. 회사와 기간은 모든 탭에 공통 적용돼요.</p>',
              render_kis_controls()]
+    if tab_label == "자본적정성":
+        parts.append(
+            '<div class="control-row" style="margin-top:8px;"><label>목표 BIS비율(%) '
+            '<input type="number" class="kis-target" value="8" step="0.5" min="0" max="30" '
+            'oninput="kisSetTarget(this)" style="width:90px;min-width:90px;"></label>'
+            '<span class="caption" style="align-self:center;">표와 아래 "자본 감소 여력" 차트가 이 비율을 기준으로 계산돼요(기본 8%).</span></div>')
     parts.append(render_kis_table(tab_label))
 
     def cell(key, name, unit, kind, extra):
         if kind == "empty":
             return '<div class="cell"></div>'
         attrs = ""
-        if kind in ("scatter", "dual", "cmp3", "cmp3m"):
+        if kind in ("scatter", "dual", "cmp3", "cmp3m", "buf"):
             attrs = f" data-{kind}='{json.dumps(extra, ensure_ascii=False)}'"
             extra = ""
         elif kind in ("multi", "cmp", "dist"):
