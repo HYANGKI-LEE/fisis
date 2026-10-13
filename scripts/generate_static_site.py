@@ -437,8 +437,10 @@ def render_scatter_section(sector: str) -> str:
         fillcolor="rgba(255,224,130,0.45)", line=dict(width=0), hoverinfo="skip", showlegend=False))
     for col, color, symbol in (("경상이익률", navy, "square"), ("대손비용률", blue, "diamond")):
         fig.add_trace(go.Scatter(
-            x=df["대출금리"], y=df[col], mode="markers", name=col,
+            x=df["대출금리"], y=df[col], mode="markers+text", name=col,
             marker=dict(color=color, symbol=symbol, size=9),
+            text=[short(c) for c in df["회사"]], textposition="top center" if col == "경상이익률" else "bottom center",
+            textfont=dict(size=9, color=color), cliponaxis=False,
             customdata=[short(c) for c in df["회사"]],
             hovertemplate="%{customdata}<br>대출금리 %{x:.2f}% / " + col + " %{y:.2f}%<extra></extra>"))
         slope, icpt, _ = fits[col]
@@ -448,10 +450,17 @@ def render_scatter_section(sector: str) -> str:
     for i, (col, color) in enumerate((("경상이익률", navy), ("대손비용률", blue))):
         fig.add_annotation(xref="paper", yref="paper", x=0.06, y=0.97 - i * 0.07, showarrow=False,
                            text=f"<b>R² = {fits[col][2]:.4f}</b>", font=dict(color=color, size=14), xanchor="left")
+    def padded(vals, frac=0.07):
+        lo, hi = float(np.min(vals)), float(np.max(vals))
+        pad = (hi - lo) * frac or 0.5
+        return [lo - pad, hi + pad]
+
+    y_all = np.concatenate([df["경상이익률"].to_numpy(), df["대손비용률"].to_numpy()])
     fig.update_layout(
-        height=480, margin=dict(t=30, b=60), plot_bgcolor="white",
-        xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
-        yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"),
+        height=520, margin=dict(t=30, b=50, l=48, r=8), plot_bgcolor="white",
+        xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999", range=padded(x)),
+        yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999",
+                   range=padded(y_all)),
         legend=dict(x=0.8, y=0.12, bgcolor="rgba(255,255,255,0.7)"))
     # 2열: 오른쪽은 대손 차감 후 경상이익률(= 경상이익률 - 대손비용률). 아래 줄에는 웰컴저축은행 제외 버전
     def net_fig(d: pd.DataFrame, title: str):
@@ -462,8 +471,9 @@ def render_scatter_section(sector: str) -> str:
         xr = np.array([xd.min(), xd.max()])
         f = go.Figure()
         f.add_trace(go.Scatter(
-            x=xd, y=net, mode="markers", name="대손 차감 후 경상이익률",
+            x=xd, y=net, mode="markers+text", name="대손 차감 후 경상이익률",
             marker=dict(color="#C0504D", symbol="circle", size=9), showlegend=False,
+            text=[short(c) for c in d["회사"]], textposition="top center", textfont=dict(size=9, color="#555"), cliponaxis=False,
             customdata=[short(c) for c in d["회사"]],
             hovertemplate="%{customdata}<br>대출금리 %{x:.2f}% / 대손 차감 후 경상이익률 %{y:.2f}%<extra></extra>"))
         f.add_trace(go.Scatter(
@@ -472,10 +482,11 @@ def render_scatter_section(sector: str) -> str:
         f.add_annotation(xref="paper", yref="paper", x=0.06, y=0.97, showarrow=False,
                          text=f"<b>R² = {r2:.4f}</b>", font=dict(color="#C0504D", size=14), xanchor="left")
         f.update_layout(
-            height=480, margin=dict(t=40, b=60), plot_bgcolor="white",
+            height=520, margin=dict(t=40, b=50, l=48, r=8), plot_bgcolor="white",
             title=dict(text=title, font=dict(size=14), x=0.02),
-            xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999"),
-            yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999"))
+            xaxis=dict(title=f"회사별 대출금리 수준({x_label}, %)", showgrid=False, linecolor="#999", range=padded(xd)),
+            yaxis=dict(title="총자산 대비(%)", showgrid=True, gridcolor="#e5e7eb", zeroline=True, zerolinecolor="#999", linecolor="#999",
+                       range=padded(net)))
         return f, slope, r2
 
     fig2, slope_all, r2_all = net_fig(df, f"대손 차감 후 경상이익률 ({len(df)}개사)")
@@ -488,7 +499,7 @@ def render_scatter_section(sector: str) -> str:
     return (
         f'<h4>회사별 대출금리 수준과 경상이익률·대손비용률 <span class="caption" style="font-weight:normal;">'
         f'(단위: %, {qlabel} 기준 연환산, 신평사 유효등급 {len(df)}개사)</span></h4>'
-        f'<div class="grid" style="grid-template-columns:repeat(3,1fr);">'
+        f'<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:2px;">'
         f'<div class="cell">{chart_div(fig)}</div>'
         f'<div class="cell">{chart_div(fig2)}</div>'
         f'<div class="cell">{chart_div(fig3)}</div>'
