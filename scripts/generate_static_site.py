@@ -36,9 +36,8 @@ from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot,
 # 기준 요약(사업위험/재무위험), "최근 실적"은 기존 당기순이익/ROA/ROE 요약.
 # 자산건전성 이후 10개는 아직 준비중 placeholder.
 SAVINGS_BANK_TABS = [
-    "주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성", "유동성",
-    "자산 현황", "부채 현황", "부문별 손익 현황", "대출금 운용",
-    "대차대조표", "손익계산서",
+    "주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성",
+    "재무상태표", "손익계산서",
 ]
 
 # 차트 기본 스타일: 흰 배경, 가로(y축) 그리드만
@@ -922,7 +921,7 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     cr_content = render_credit_rating_tab(f"{sector_key}-cr", sector, kpi, company_order, kis_payload)
     perf_content = render_main_tab_rich(f"{sector_key}-perf", sector, kpi, snap_full, kis_payload, rated)
 
-    stmt_kind = {"손익계산서": ("is", "is"), "대차대조표": ("bs", "bs")}
+    stmt_kind = {"손익계산서": ("is", "is"), "재무상태표": ("bs", "bs")}
     rest = [
         render_statement_tab(f"{sector_key}-{stmt_kind[lbl][0]}", sector, stmt_kind[lbl][1])
         if lbl in stmt_kind
@@ -934,7 +933,14 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
 
     # 저축은행 Data Package(SBI 탭 기준) 항목 차트: 서브탭 하단에 붙임
     if kis_payload:
-        bodies = [b + kis_charts.render_kis_block(lbl) for b, lbl in zip(bodies, SAVINGS_BANK_TABS)]
+        merged = []
+        for b, lbl in zip(bodies, SAVINGS_BANK_TABS):
+            if lbl in ("재무상태표", "손익계산서"):   # 표를 맨 위, 기존 내용, 항목 차트 순서
+                head, tail = kis_charts.render_kis_parts(lbl)
+                merged.append(head + b + tail)
+            else:
+                merged.append(b + kis_charts.render_kis_block(lbl))
+        bodies = merged
         return tabs_html(SAVINGS_BANK_TABS, bodies) + kis_charts.render_kis_data_script(kis_payload)
     return tabs_html(SAVINGS_BANK_TABS, bodies)
 
@@ -975,6 +981,7 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .kis-table td { padding:6px 10px; text-align:right; border-bottom:1px solid #eee; white-space:nowrap; }
 .kis-table tbody tr:nth-child(odd) td { background:#fafbfd; }
 .kis-note { margin:2px 0 8px; }
+.kis-table tr.kis-bold td { font-weight:700; background:#f3f6fa !important; }
 .kis-title { display:none; font-size:14px; font-weight:600; margin:10px 0 0; }
 .kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }
 .is-table td:first-child { text-align:left; }

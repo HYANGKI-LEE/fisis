@@ -32,12 +32,11 @@ ALL_LABEL = "저축은행 전체"
 
 # 섹션 -> 서브탭 배치 (차주별 원화대출금은 자산건전성 탭 아래)
 TAB_SECTIONS = {
-    "대차대조표": ["bs"],
+    "재무상태표": ["bs"],
     "손익계산서": ["is"],
     "수익성": ["profit"],
     "자산건전성": ["asset", "borrower"],
     "자본적정성": ["capital"],
-    "유동성": ["liquidity"],
 }
 
 # 모든 기간 선택 버튼 공통 (숫자+년 = 최근 N년)
@@ -213,6 +212,11 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     add_sum("is_op", qe(op))
     add_sum("is_nonop", qe(P("L")))
     add_sum("is_ni", qe(ni))
+    # 손익계산서 표의 연도(12월) 열용: 최근 4개 분기 합계(억원)
+    for key, flow in (("is_total", op), ("is_int", interest), ("is_fee", fee), ("is_sec", secg), ("is_oth", other),
+                      ("is_sga", sga), ("is_ppop", op + prov_exp), ("is_prov", prov_exp), ("is_op", op),
+                      ("is_nonop", P("L")), ("is_ni", ni)):
+        add_sum(key + "_ltm", ltm(flow))
 
     # ---------------- 수익성 (분기 연율화, 분모는 분기 평잔)
     avg_asset = (asset + lag(asset)) / 2
@@ -509,6 +513,48 @@ PROFIT_TABLE_NOTE = (
 
 # 탭별 상단 표: (이름, 단위, 연도(12월) 열 키, 분기 열 키). 잔액형 항목은 두 키가 같다.
 TAB_TABLES = {
+    "재무상태표": {
+        "title": "재무상태표 (단위: 억원)",
+        "note": "연도(12월) 열은 해당 연도 12월 말, 4분기 전·당분기 열은 해당 분기 말 값이에요. "
+                "기타자산 = 자산총계 - 현금및예치금 - 유가증권 - 대출채권, 기타부채 = 부채총계 - 예수부채 - 차입부채예요.",
+        "rows": [
+            ("자산총계", "eok", "bs_asset", "bs_asset", 0, True),
+            ("현금및예치금", "eok", "bs_cash", "bs_cash", 1),
+            ("유가증권", "eok", "bs_sec", "bs_sec", 1),
+            ("대출채권", "eok", "bs_loan", "bs_loan", 1),
+            ("(대손충당금)", "eok", "bs_allow", "bs_allow", 2),
+            ("기타자산", "eok", "bs_other", "bs_other", 1),
+            ("부채총계", "eok", "bs_liab", "bs_liab", 0, True),
+            ("예수부채", "eok", "bs_dep", "bs_dep", 1),
+            ("차입부채", "eok", "bs_borrow", "bs_borrow", 1),
+            ("기타부채", "eok", "bs_oliab", "bs_oliab", 1),
+            ("자본총계", "eok", "bs_equity", "bs_equity", 0, True),
+            ("자본금", "eok", "bs_cap", "bs_cap", 1),
+            ("자본잉여금", "eok", "bs_capsur", "bs_capsur", 1),
+            ("이익잉여금(결손금)", "eok", "bs_re", "bs_re", 1),
+            ("자본조정", "eok", "bs_adj", "bs_adj", 1),
+            ("기타포괄손익누계액", "eok", "bs_oci", "bs_oci", 1),
+        ],
+    },
+    "손익계산서": {
+        "title": "손익계산서 (단위: 억원)",
+        "note": "연도(12월) 열은 해당 연도 4개 분기 합계, 4분기 전·당분기 열은 해당 분기 금액이에요. "
+                "총영업이익은 Data Package 표에서 영업이익과 같은 값이에요. 유가증권관련이익 = 유가증권관련수익 - 유가증권관련비용, "
+                "기타영업이익 = 기타수익 - 기타비용(대손상각비 포함), 충당금적립전영업이익(PPOP) = 영업이익 + 대손상각비예요.",
+        "rows": [
+            ("총영업이익", "eok", "is_total_ltm", "is_total", 0, True),
+            ("이자이익", "eok", "is_int_ltm", "is_int", 1),
+            ("수수료이익", "eok", "is_fee_ltm", "is_fee", 1),
+            ("유가증권관련이익", "eok", "is_sec_ltm", "is_sec", 1),
+            ("기타영업이익", "eok", "is_oth_ltm", "is_oth", 1),
+            ("판매비와관리비", "eok", "is_sga_ltm", "is_sga", 0),
+            ("충당금적립전영업이익(PPOP)", "eok", "is_ppop_ltm", "is_ppop", 0),
+            ("대손상각비", "eok", "is_prov_ltm", "is_prov", 0),
+            ("영업이익", "eok", "is_op_ltm", "is_op", 0, True),
+            ("영업외이익", "eok", "is_nonop_ltm", "is_nonop", 0),
+            ("당기순이익", "eok", "is_ni_ltm", "is_ni", 0, True),
+        ],
+    },
     "수익성": {
         "title": "수익성 (단위: %, 총자산 평잔: 억원)",
         "note": PROFIT_TABLE_NOTE,
@@ -558,7 +604,10 @@ def render_kis_table(tab_label: str) -> str:
     t = TAB_TABLES.get(tab_label)
     if not t:
         return ""
-    rows = [{"n": n, "u": u, "fy": fy, "q": q} for n, u, fy, q in t["rows"]]
+    rows = []
+    for r in t["rows"]:
+        n, u, fy, q = r[:4]
+        rows.append({"n": n, "u": u, "fy": fy, "q": q, "i": r[4] if len(r) > 4 else 0, "b": bool(r[5]) if len(r) > 5 else False})
     return (f'<h4>{t["title"]}</h4>'
             f'<div class="kis-table-wrap"><table class="kis-table" data-rows=\'{json.dumps(rows, ensure_ascii=False)}\'>'
             '<thead></thead><tbody></tbody></table></div>'
@@ -586,11 +635,11 @@ def render_kis_controls() -> str:
     )
 
 
-def render_kis_block(tab_label: str) -> str:
-    """서브탭 하단에 붙일 Data Package 항목 차트 영역(빈 차트 div만; 그리기는 JS)."""
+def render_kis_parts(tab_label: str) -> tuple[str, str]:
+    """(상단: 회사/기간 선택줄 + 표, 하단: 차트 영역). 기존 탭 내용 위에 표를 두고 싶을 때 둘을 나눠서 쓴다."""
     sections = TAB_SECTIONS.get(tab_label)
     if not sections:
-        return ""
+        return "", ""
     parts = [render_kis_controls()]
     if tab_label == "자본적정성":
         parts.append(
@@ -599,6 +648,8 @@ def render_kis_block(tab_label: str) -> str:
             'oninput="kisSetTarget(this)" style="width:90px;min-width:90px;"></label>'
             '<span class="caption" style="align-self:center;">표와 아래 "자본 감소 여력" 차트가 이 비율을 기준으로 계산돼요(기본 8%).</span></div>')
     parts.append(render_kis_table(tab_label))
+    head_parts = parts   # 선택줄 + (목표 입력) + 표
+    parts = []
 
     def cell(key, name, unit, kind, extra):
         if kind == "empty":
@@ -629,7 +680,12 @@ def render_kis_block(tab_label: str) -> str:
             parts.append(f'<div class="grid" style="grid-template-columns:repeat({cols},1fr);">{cells}</div>')
         if sec in SECTION_NOTES:
             parts.append(f'<p class="caption">{SECTION_NOTES[sec]}</p>')
-    return "".join(parts)
+    return "".join(head_parts), "".join(parts)
+
+
+def render_kis_block(tab_label: str) -> str:
+    head, body = render_kis_parts(tab_label)
+    return head + body
 
 
 def render_kis_data_script(payload: dict) -> str:

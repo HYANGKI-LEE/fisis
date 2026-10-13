@@ -390,7 +390,9 @@ function kisRenderTable() {
     };
     tb.querySelector('thead').innerHTML = '<tr><th>구분</th>' + cols.map(function(c){ return '<th>' + kisQLabel(q[c.i]) + '</th>'; }).join('') + '</tr>';
     tb.querySelector('tbody').innerHTML = rows.map(function(r){
-      return '<tr><td>' + r.n.replace('목표 BIS비율', '목표 BIS ' + KIS.target + '%') + '</td>' + cols.map(function(c){
+      var pad = (r.i || 0) * 16;
+      return '<tr' + (r.b ? ' class="kis-bold"' : '') + '><td style="padding-left:' + (10 + pad) + 'px;">' +
+             r.n.replace('목표 BIS비율', '목표 BIS ' + KIS.target + '%') + '</td>' + cols.map(function(c){
         var key = c.fy ? r.fy : r.q;
         if (key.indexOf('calc:') === 0) return '<td>' + fmt(kisBufValue(ser, c.i, key.slice(5)), r.u) + '</td>';
         var arr = ser[key];
