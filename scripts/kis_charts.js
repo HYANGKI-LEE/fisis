@@ -531,12 +531,25 @@ function ratingGradeIdx(it, v) {
   }
   return 4;
 }
-function ratingModel(s) {
-  var base = s >= 4.5 ? 'AA' : s >= 3.5 ? 'A' : s >= 2.5 ? 'BBB' : s >= 1.5 ? 'BB' : 'B';
-  var center = {AA: 5, A: 4, BBB: 3, BB: 2, B: 1}[base], d = s - center;
-  var sign = (base === 'AA' || base === 'B') ? '' : (d > 1 / 6 ? '+' : (d < -1 / 6 ? '-' : ''));
-  return {base: base, label: base + sign};
+// Scoring 엑셀(Rating Numeric Matrix)의 평점 체계: 등급별 평균평점 / 부도율평점
+//   평균평점: AAA 1, AA 3, A 6, BBB 9, BB 12, B 15, CCC 18 (사이 정수는 +/0/- 노치)
+//   부도율평점(%): AAA 0.03, AA 0.11, A 0.30, BBB 1.63, BB 8.13, B 23.73, CCC 65
+var GRADE_AVG = [3, 6, 9, 12, 15];                  // 인덱스: AA, A, BBB, BB, B
+var GRADE_PD = [0.11, 0.30, 1.63, 8.13, 23.73];
+var AVG_LABELS = ['', 'AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-', 'BB+', 'BB', 'BB-', 'B+', 'B', 'B-', 'CCC+', 'CCC'];
+var PD_GRADES = [['AAA', 0.03], ['AA', 0.11], ['A', 0.30], ['BBB', 1.63], ['BB', 8.13], ['B', 23.73], ['CCC', 65]];
+// 합계 평균평점 -> 노치 등급 (엑셀과 같이 해당 정수 구간의 아래쪽 등급)
+function ratingByAvg(avg) {
+  var n = Math.max(1, Math.min(18, Math.floor(avg + 1e-9)));
+  return AVG_LABELS[n];
 }
+// 합계 부도율평점 -> 등급 (평점이 속한 구간의 하단 등급)
+function ratingByPd(pd) {
+  var g = 'AAA';
+  PD_GRADES.forEach(function(x){ if (pd + 1e-12 >= x[1]) g = x[0]; });
+  return g;
+}
+function ratingBase(label) { return label.replace(/[+-]$/, ''); }
 function ratingFmt(it, v) {
   if (v === null || v === undefined) return '-';
   return it.u === 'x' ? v.toFixed(1) + '배' : v.toFixed(1) + '%';
@@ -561,9 +574,10 @@ function ratingRender() {
     return {it: it, v: v, gi: gi};
   });
   var usable = rows.filter(function(r){ return r.gi !== null && r.gi !== undefined; });
-  var wsum = usable.reduce(function(s, r){ return s + r.it.w; }, 0);
-  var score = wsum ? usable.reduce(function(s, r){ return s + r.it.w * (5 - r.gi); }, 0) / wsum : null;
-  var model = score === null ? null : ratingModel(score);
+  var wsum = usable.reduce(function(t, r){ return t + r.it.w; }, 0);
+  var avg = wsum ? usable.reduce(function(t, r){ return t + r.it.w / 100 * GRADE_AVG[r.gi]; }, 0) / (wsum / 100) : null;
+  var pd = wsum ? usable.reduce(function(t, r){ return t + r.it.w / 100 * GRADE_PD[r.gi]; }, 0) / (wsum / 100) : null;
+  var labAvg = avg === null ? null : ratingByAvg(avg), labPd = pd === null ? null : ratingByPd(pd);
 
   document.getElementById('ratingTitle').textContent =
     (isAll ? '저축은행 업권 전체(합산)' : company) + ' 신용평가방법론(2025.03.24) 적용 결과 (' + RATING.fy + ' 결산 기준)';
@@ -580,21 +594,27 @@ function ratingRender() {
     tr += '<td class="num">' + (it.q ? '정성(선택)' : ratingFmt(it, r.v)) + '</td><td class="w">' + it.w.toFixed(1) + '%</td></tr>';
     body += tr;
   });
-  body += '<tr class="rating-model"><td colspan="2" class="item">모델등급</td><td></td>';
-  for (var j = 0; j < 5; j++) body += '<td class="mark">' + (model && model.base === RATING_GRADES[j] ? '○' : '') + '</td>';
-  body += '<td class="num">' + (model ? model.label : '-') + '</td><td class="w">100%</td></tr></tbody>';
+  [['모델등급 (평균평점 기준)', labAvg], ['모델등급 (부도율평점 기준)', labPd]].forEach(function(m){
+    body += '<tr class="rating-model"><td colspan="2" class="item">' + m[0] + '</td><td class="mark">' + (m[1] === 'AAA' ? '○' : '') + '</td>';
+    for (var j = 0; j < 5; j++) body += '<td class="mark">' + (m[1] && ratingBase(m[1]) === RATING_GRADES[j] ? '○' : '') + '</td>';
+    body += '<td class="num">' + (m[1] || '-') + '</td><td class="w">100%</td></tr>';
+  });
+  body += '</tbody>';
   tbl.innerHTML = head + body;
 
   var st = document.getElementById('ratingScore');
-  var sb = '<thead><tr><th>평가요소</th><th>지표값</th><th>등급</th><th>점수</th><th>가중치</th><th>가중점수</th></tr></thead><tbody>';
+  var sb = '<thead><tr><th>평가요소</th><th>지표값</th><th>등급</th><th>평균평점</th><th>부도율평점(%)</th><th>가중치</th><th>가중 평균평점</th><th>가중 부도율평점</th></tr></thead><tbody>';
   rows.forEach(function(r){
-    var it = r.it, has = r.gi !== null && r.gi !== undefined, sc = has ? 5 - r.gi : null;
+    var it = r.it, has = r.gi !== null && r.gi !== undefined;
     sb += '<tr><td class="item">' + it.n + '</td><td class="num">' + (it.q ? '정성(선택)' : ratingFmt(it, r.v)) + '</td><td>' +
-          (has ? RATING_GRADES[r.gi] : '해당없음') + '</td><td>' + (has ? sc : '-') + '</td><td>' + it.w.toFixed(1) + '%</td><td>' +
-          (has ? (it.w * sc / 100).toFixed(2) : '-') + '</td></tr>';
+          (has ? RATING_GRADES[r.gi] : '해당없음') + '</td><td>' + (has ? GRADE_AVG[r.gi] : '-') + '</td><td>' + (has ? GRADE_PD[r.gi] : '-') + '</td><td>' +
+          it.w.toFixed(1) + '%</td><td>' + (has ? (it.w / 100 * GRADE_AVG[r.gi]).toFixed(3) : '-') + '</td><td>' +
+          (has ? (it.w / 100 * GRADE_PD[r.gi]).toFixed(3) : '-') + '</td></tr>';
   });
-  sb += '<tr class="rating-model"><td colspan="3" class="item">합계 (가중평균 점수' + (wsum < 100 ? ', 해당없음 항목 제외 후 가중치 ' + wsum.toFixed(1) + '% 기준' : '') + ')</td><td colspan="2">' +
-        (score === null ? '-' : score.toFixed(2)) + '</td><td>' + (model ? model.label : '-') + '</td></tr></tbody>';
+  var note = wsum < 100 ? ' (해당없음 항목 제외, 가중치 ' + wsum.toFixed(1) + '% 기준으로 재환산)' : '';
+  sb += '<tr class="rating-model"><td colspan="5" class="item">Total score' + note + '</td><td>' + wsum.toFixed(1) + '%</td><td>' +
+        (avg === null ? '-' : avg.toFixed(3)) + '</td><td>' + (pd === null ? '-' : pd.toFixed(3)) + '</td></tr>' +
+        '<tr class="rating-model"><td colspan="6" class="item">자기등급 (평균평점 기준 / 부도율평점 기준)</td><td>' + (labAvg || '-') + '</td><td>' + (labPd || '-') + '</td></tr></tbody>';
   st.innerHTML = sb;
 
   var refEl = document.getElementById('ratingRef');
