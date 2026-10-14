@@ -109,6 +109,7 @@ function kisRenderVisible() {
   if (!kisInit()) return;
   kisStickyOffset();
   kisRenderTable();
+  kisSyncStatements();
   var idx = kisIndices();
   var ser = KIS.d.series[KIS.company] || {};
   document.querySelectorAll('.kis-chart').forEach(function(el){
@@ -493,4 +494,13 @@ function kisRenderBuf(el, ser, idx) {
     height: 340, margin: {t: 60, b: 60, l: 55, r: 10}, title: kisTitle(el, sub), xaxis: kisXAxis(x.length),
     yaxis: {ticksuffix: '%', zeroline: true, zerolinecolor: '#999'}, legend: {}
   }, {displaylogo: false, responsive: true});
+}
+
+// 맨 위 공통 선택줄(회사/기간)이 바뀌면 재무상태표·손익계산서의 기존 차트/표도 같이 갱신
+function kisSyncStatements() {
+  if (!window.IS_STATE) return;
+  Object.keys(IS_STATE).forEach(function(sec){
+    var cap = document.getElementById('isCaption-' + sec);
+    if (cap && cap.offsetParent !== null) onIsChange(sec);
+  });
 }

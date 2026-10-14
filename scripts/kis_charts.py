@@ -37,6 +37,7 @@ TAB_SECTIONS = {
     "수익성": ["profit"],
     "자산건전성": ["asset", "borrower"],
     "자본적정성": ["capital"],
+    "유동성": ["liquidity"],
 }
 
 # 모든 기간 선택 버튼 공통 (숫자+년 = 최근 N년)
@@ -304,6 +305,8 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
 
     # ---------------- 유동성
     add_ratio("lq_ratio", g("SE011", "A1"), g("SE011", "A2"))
+    add_sum("lq_assets", g("SE011", "A1"))     # 유동성자산(억원)
+    add_sum("lq_liab", g("SE011", "A2"))       # 유동성부채(억원)
 
     # ---------------- 회사별 / 업권 전체 시계열
     rated_cos = [c for c in companies if c in set(rated)]
@@ -466,8 +469,11 @@ SECTIONS = {
         ("cp_c_bufsub", "자본 감소 여력 / 고정이하여신", "%", "buf", {"mode": "sub"}),
         ("cp_lev", "레버리지배율", "배", "cmp3", {"k": "cp_lev", "gray": True}),
     ])],
+    # 유동성: 유동성비율(비교선) + 유동자산/유동부채 추이
     "liquidity": [(None, [
         ("lq_ratio", "유동성비율", "%", "cmp3", {"k": "lq_ratio", "gray": True}),
+        ("mc_lq_amt", "유동자산·유동부채 추이", "억원", "multi",
+         [("lq_assets", "유동자산", "#2980B9"), ("lq_liab", "유동부채", "#E8312F")]),
     ])],
 }
 
@@ -492,6 +498,7 @@ CHART_NOTES = {
     "aq_overr": "연체율 = 연체액 ÷ 총여신.",
     "aq_subr": "고정이하여신비율 = 고정이하여신 ÷ 총여신.",
     "aq_cov": "대손충당금/고정이하여신 = 대손충당금적립잔액 ÷ 고정이하분류여신.",
+    "lq_ratio": "유동성비율 = 유동성자산 ÷ 유동성부채 (FISIS 유동성 통계). 회사를 고르면 업권 전체·신평사 유효등급 보유사와 비교해요.",
     "cp_bis": "BIS기준 자기자본비율 = BIS기준 자기자본 ÷ 위험가중자산. BIS기준 자기자본 = 기본자본(자본금+자본잉여금+이익잉여금+외부주주지분-공제항목) + 보완자본(후순위채무+재평가적립금+매도가능증권 평가이익 등+대손충당금+기타) + 경영정상화 장기차입금 - 공제항목.",
     "cp_lev": "레버리지배율 = 자산총계 ÷ 자본총계.",
 }
@@ -579,6 +586,15 @@ TAB_TABLES = {
             ("연체율", "pct", "aq_overr", "aq_overr"),
             ("고정이하여신비율", "pct", "aq_subr", "aq_subr"),
             ("대손충당금/고정이하여신", "pct", "aq_cov", "aq_cov"),
+        ],
+    },
+    "유동성": {
+        "title": "유동성 (단위: 억원, %)",
+        "note": "연도(12월) 열은 해당 연도 12월 말, 4분기 전·당분기 열은 해당 분기 말 값이에요. 유동성비율 = 유동성자산 ÷ 유동성부채 (FISIS 유동성 통계).",
+        "rows": [
+            ("유동자산", "eok", "lq_assets", "lq_assets"),
+            ("유동부채", "eok", "lq_liab", "lq_liab"),
+            ("유동성비율", "pct", "lq_ratio", "lq_ratio"),
         ],
     },
     "자본적정성": {

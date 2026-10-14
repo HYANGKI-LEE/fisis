@@ -36,7 +36,7 @@ from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot,
 # 기준 요약(사업위험/재무위험), "최근 실적"은 기존 당기순이익/ROA/ROE 요약.
 # 자산건전성 이후 10개는 아직 준비중 placeholder.
 SAVINGS_BANK_TABS = [
-    "주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성",
+    "주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성", "유동성",
     "재무상태표", "손익계산서",
 ]
 
@@ -761,34 +761,14 @@ def render_statement_tab(sector_key: str, sector: str, kind: str) -> str:
         return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
     payload = (f'<script type="application/json" id="data-{sector_key}">'
                f'{json.dumps(data, ensure_ascii=False, separators=(",", ":"))}</script>')
-    last_i = len(data["quarters"]) - 1
-    quarter_options = "".join(
-        f'<option value="{i}"{" selected" if i == last_i else ""}>{data["quarters"][i]}</option>'
-        for i in range(last_i, -1, -1)
-    )
-    company_options = "".join(f'<option value="{c}">' for c in [STMT_ALL_LABEL] + data["companies"])
     basis_ctl = ""
-    if kind == "is":  # 재무상태표는 시점 잔액이라 당분기/누계 구분이 없음
+    if kind == "is":  # 재무상태표는 시점 잔액이라 당분기/누계 구분이 없음 (회사·기간은 맨 위 공통 선택줄을 따름)
         basis_ctl = (
-            '<label>구분 '
+            '<div class="control-row"><label>구분 '
             f'<select id="isBasis-{sector_key}" onchange="onIsChange(\'{sector_key}\')" style="min-width:120px;">'
-            '<option value="q">당분기</option><option value="cum">누계(연초~)</option></select></label>'
+            '<option value="q">당분기</option><option value="cum">누계(연초~)</option></select></label></div>'
         )
-    controls = (
-        '<div class="control-row">'
-        '<label>회사(검색 가능) '
-        f'<input type="text" id="isCompany-{sector_key}" list="isCompanyList-{sector_key}" '
-        f'value="{STMT_ALL_LABEL}" autocomplete="off" '
-        f'onfocus="crCompanyFocus(this)" onblur="isCompanyBlur(\'{sector_key}\',this)" '
-        f'oninput="onIsChange(\'{sector_key}\')"></label>'
-        f'<datalist id="isCompanyList-{sector_key}">{company_options}</datalist>'
-        '<label>기준 분기 '
-        f'<select id="isQuarter-{sector_key}" onchange="onIsChange(\'{sector_key}\')" style="min-width:120px;">'
-        f'{quarter_options}</select></label>'
-        f'{basis_ctl}'
-        '</div>'
-        f'<p class="caption" id="isCaption-{sector_key}"></p>'
-    )
+    controls = f'{basis_ctl}<p class="caption" id="isCaption-{sector_key}"></p>'
     main_title = "손익 흐름" if kind == "is" else "자산 vs 부채 및 자본"
     pie_title = "수익 / 비용 구성" if kind == "is" else "자산 / 부채 및 자본 구성 비중 (업권 전체 vs 선택 회사)"
     body = (
@@ -1496,11 +1476,17 @@ function onIsChange(sector) {
   var st = IS_STATE[sector];
   if (!st) return;
   var data = st.data;
-  var input = document.getElementById('isCompany-' + sector);
-  var company = input.value;
-  if (company !== data.allLabel && !data.series[company]) return;  // 입력 중이거나 목록에 없는 이름
+  // 회사와 기준 분기는 맨 위 공통 선택줄(KIS)을 따름: 회사 = 선택 회사, 기준 분기 = 선택 기간의 마지막 분기
+  var company = data.allLabel, idxQ = data.quarters.length - 1;
+  if (window.KIS) {
+    company = KIS.company;
+    var ks = kisIndices();
+    var qi = data.quarters.indexOf(KIS.d.quarters[ks[ks.length - 1]]);
+    if (qi >= 0) idxQ = qi;
+  }
+  if (company !== data.allLabel && !data.series[company]) company = data.allLabel;
   st.company = company;
-  st.idx = parseInt(document.getElementById('isQuarter-' + sector).value, 10);
+  st.idx = idxQ;
   var basisEl = document.getElementById('isBasis-' + sector);
   st.basis = basisEl ? basisEl.value : 'q';   // 재무상태표는 시점 잔액이라 항상 'q'
   renderIsCaption(sector);
