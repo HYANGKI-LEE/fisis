@@ -1,8 +1,8 @@
-"""증권사 페이지용 데이터: FISIS final_df(+ 엑셀 전용 항목)에서 회사 x 항목 x 분기 시계열을 만든다.
+"""증권사 페이지용 데이터: FISIS final_df에서 회사 x 항목 x 분기 시계열을 만든다.
 
 정의는 한국기업평가 증권업 재무자료(엑셀) '증권사비교' 시트/용어정의를 따랐고, 2026.06 기준으로 엑셀 값과
 대조해 맞춘 것만 FISIS에서 직접 계산한다(verify_securities.py로 검증). FISIS에 없는 항목(영업순수익 구성,
-수정NCR, 조정레버리지/유동성, 우발채무, ELS·DLS)은 data/securities_excel.json(엑셀에서 추출, 해당 시점만)을 쓴다.
+수정NCR 등)은 쓰지 않는다 - 페이지의 모든 숫자는 FISIS 값이다.
 금액은 억원, 손익은 당분기(누계 기준 비율은 분기 연율화).
 """
 import json
@@ -22,7 +22,6 @@ from dashboard.loader import latest_final_df_path  # noqa: E402
 SECTOR = "증권사"
 START_YM = 201106       # '요약재무상태표/손익계산서(11.06월 이후)' 양식이 시작되는 시점
 ALL_LABEL = "증권사 전체"
-EXCEL_JSON = REPO_DIR / "data" / "securities_excel.json"
 
 # (표시명, FISIS 금융회사코드, Peer 그룹, 결산월)  - 엑셀 용어정의의 Peer 그룹 기준(종합IB 9개사 / 일반증권사 16개사).
 # '비교제외'(상상인증권)는 엑셀 비교표에 없어서 회사 선택은 되지만 업권 전체·Peer 합산에서는 뺀다.
@@ -317,7 +316,6 @@ class SecData:
         # ================= 파생결합증권 (FISIS: 재무상태표상 잔액)
         add_sum("dr_asset", sec_dlsec); add_sum("dr_sold", L("B05"))
 
-        self._excel_metrics(eq, la - lb)
 
     def _ltm(self, flow: pd.DataFrame) -> pd.DataFrame:
         """최근 4개 분기 합(4개 모두 값이 있을 때만)."""
@@ -328,50 +326,6 @@ class SecData:
             ok = ~np.isnan(w).any(axis=1)
             out[ok, j] = w[ok].sum(axis=1)
         return pd.DataFrame(out, index=flow.index, columns=flow.columns)
-
-    # ---- 엑셀 전용 항목 (FISIS에 없음): 해당 시점에만 값이 있음
-    def _excel_metrics(self, eq: pd.DataFrame, gap: pd.DataFrame):
-        M = self.metrics
-
-        def blank():
-            return pd.DataFrame(np.nan, index=self.names, columns=self.cal)
-
-        ex = {}
-        self.excel_periods = []
-        if EXCEL_JSON.exists():
-            raw = json.loads(EXCEL_JSON.read_text(encoding="utf-8"))
-            self.excel_periods = raw["periods"]
-            keys = {k for per in raw["data"].values() for co in per.values() for k in co}
-            for k in keys:
-                ex[k] = blank()
-            for ym, per in raw["data"].items():
-                if ym not in self.cal:
-                    continue
-                for co, vals in per.items():
-                    if co not in self.names:
-                        continue
-                    for k, v in vals.items():
-                        ex[k].loc[co, ym] = v
-        for k, d in ex.items():
-            # 비율형 엑셀 값(합산 불가)은 회사별로만 쓰고 업권/Peer 합산 시계열은 만들지 않는다
-            M[k] = {"kind": "company" if k in ("ex_adj_liq", "ex_cont_gap", "ex_adj_lev", "ex_adj_ncr", "ex_hedge_eq", "ex_hedge_gap", "ex_cont_eq") else "sum", "df": d}
-        if not ex:
-            return
-        z = blank()
-        for k in ("ex_brokerage", "ex_trading", "ex_ib", "ex_wm", "ex_otherrev", "ex_adj_ncap", "ex_adj_risk", "ex_els", "ex_dls", "ex_hedge", "ex_cont"):
-            ex.setdefault(k, z)
-        M["ex_adj_ncr"] = {"kind": "ratio", "num": ex["ex_adj_ncap"], "den": ex["ex_adj_risk"], "mult": 100.0}
-        M["ex_hedge_eq"] = {"kind": "ratio", "num": ex["ex_hedge"], "den": eq, "mult": 100.0}
-        M["ex_hedge_gap"] = {"kind": "ratio", "num": ex["ex_hedge"], "den": gap, "mult": 100.0}
-        M["ex_cont_eq"] = {"kind": "ratio", "num": ex["ex_cont"], "den": eq, "mult": 100.0}
-        # 조정레버리지배율 = 조정자산/자기자본 -> 업권 합산은 자기자본 가중평균
-        if "ex_adj_lev" in ex:
-            M["ex_adj_lev"] = {"kind": "ratio", "num": ex["ex_adj_lev"] * eq, "den": eq.where(ex["ex_adj_lev"].notna()), "mult": 1.0}
-        # 영업순수익 구성 비중 (구성 합계 대비)
-        tot = ex["ex_brokerage"] + ex["ex_trading"] + ex["ex_ib"] + ex["ex_wm"] + ex["ex_otherrev"]
-        for k in ("brokerage", "trading", "ib", "wm", "otherrev"):
-            M[f"ex_{k}_sh"] = {"kind": "ratio", "num": ex[f"ex_{k}"], "den": tot, "mult": 100.0}
-        M["ex_net_total"] = {"kind": "sum", "df": tot}
 
     # ---- 회사 / 업권 / Peer 시계열
     def payload(self) -> dict:
@@ -428,7 +382,6 @@ class SecData:
             "companies": [ALL_LABEL] + companies_sorted,
             "rated": [ALL_LABEL] + companies_sorted,
             "series": {k: v for k, v in series.items() if v},
-            "excelQuarters": [format_ym(int(q)) for q in self.excel_periods],
         }
 
 
