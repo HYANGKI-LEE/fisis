@@ -288,6 +288,10 @@ def build_kis_payload(sector: str, rated: list[str]) -> dict | None:
     add_ratio("bw_secx_sh", g("SE021", "A") - fill0(g("SE021", "A2")), loan_sum)   # 담보 중 부동산 외(예적금 등)
     add_ratio("bw_smex_sh", g("SE020", "A1") - fill0(g("SE020", "A11")), loan_sum)  # 중소기업대출 중 개인사업자 제외
     add_ratio("bw_large_sh", g("SE020", "A2"), loan_sum)                            # 대기업대출
+    add_sum("bw_dep", g("SE021", "A1"))                                             # 예적금담보대출
+    add_sum("bw_othcol", g("SE021", "A3"))                                          # 기타담보대출
+    add_sum("bw_etcloan", g("SE021", "C") + fill0(g("SE021", "D")))                 # 기타대출 = 신용 + 기타
+    add_sum("bw_large", g("SE020", "A2"))                                           # 대기업대출
     cons, realty = g("SE036", "A2"), g("SE036", "A6")
     add_ratio("bw_conre_sh", cons + realty, loan_sum)                                # 건설업 + 부동산업 비중(대출금 합계 대비)
     ind_total = g("SE036", "A")
@@ -615,19 +619,56 @@ TAB_TABLES = {
 }
 
 
-def render_kis_table(tab_label: str) -> str:
-    """탭 맨 위 표 (내용은 JS가 선택 회사에 맞춰 채움)."""
-    t = TAB_TABLES.get(tab_label)
-    if not t:
-        return ""
+def _table_html(t: dict) -> str:
     rows = []
     for r in t["rows"]:
         n, u, fy, q = r[:4]
         rows.append({"n": n, "u": u, "fy": fy, "q": q, "i": r[4] if len(r) > 4 else 0, "b": bool(r[5]) if len(r) > 5 else False})
     return (f'<h4>{t["title"]}</h4>'
-            f'<div class="kis-table-wrap"><table class="kis-table" data-rows=\'{json.dumps(rows, ensure_ascii=False)}\'>'
+            f"<div class=\"kis-table-wrap\"><table class=\"kis-table\" data-rows='{json.dumps(rows, ensure_ascii=False)}'>"
             '<thead></thead><tbody></tbody></table></div>'
             f'<p class="caption">{t["note"]}</p>')
+
+
+def render_kis_table(tab_label: str) -> str:
+    """탭 맨 위 표 (내용은 JS가 선택 회사에 맞춰 채움)."""
+    t = TAB_TABLES.get(tab_label)
+    return _table_html(t) if t else ""
+
+
+# 섹션 제목 바로 아래에 붙는 표 (차주별 원화대출금)
+SECTION_TABLES = {
+    "borrower": [
+        {
+            "title": "사업포트폴리오 구성 (단위: 억원, %)",
+            "note": "신용대출은 FISIS 담보별 대출의 '신용'(기업·가계 신용대출 합계)이고, 기타대출 = 신용대출 + 기타예요. "
+                    "연도(12월) 열은 12월 말, 4분기 전·당분기 열은 해당 분기 말 값이에요. 개인신용대출 비중은 FISIS에 없어서 제외했어요.",
+            "rows": [
+                ("담보대출", "eok", "bw_sec", "bw_sec"),
+                ("예적금담보대출", "eok", "bw_dep", "bw_dep", 1),
+                ("부동산담보대출", "eok", "bw_re", "bw_re", 1),
+                ("기타담보대출", "eok", "bw_othcol", "bw_othcol", 1),
+                ("보증부대출", "eok", "bw_guar", "bw_guar"),
+                ("기타대출", "eok", "bw_etcloan", "bw_etcloan"),
+                ("신용대출", "eok", "bw_cred", "bw_cred", 1),
+                ("총대출금", "eok", "bw_total", "bw_total", 0, True),
+                ("신용대출비중 (%)", "pct", "bw_cred_sh", "bw_cred_sh"),
+            ],
+        },
+        {
+            "title": "대출 운용처별 대출금 현황 (단위: 억원)",
+            "note": "FISIS 용도별 대출 기준이에요. 개인 = 가계자금대출, 기타 = 공공 및 기타자금대출이고, 개인사업자는 중소기업의 일부예요.",
+            "rows": [
+                ("개인", "eok", "bw_hh", "bw_hh"),
+                ("중소기업", "eok", "bw_sme", "bw_sme"),
+                ("개인사업자", "eok", "bw_indiv", "bw_indiv", 1),
+                ("대기업", "eok", "bw_large", "bw_large"),
+                ("기타", "eok", "bw_pub", "bw_pub"),
+                ("합계", "eok", "bw_total", "bw_total", 0, True),
+            ],
+        },
+    ],
+}
 
 
 def render_kis_controls() -> str:
@@ -688,6 +729,8 @@ def render_kis_parts(tab_label: str) -> tuple[str, str]:
 
     for sec in sections:
         parts.append(f'<h4>{SECTION_TITLES[sec]}</h4>')
+        for tbl in SECTION_TABLES.get(sec, []):
+            parts.append(_table_html(tbl))
         for group_title, items in SECTIONS[sec]:
             if group_title:
                 parts.append(f'<h5 style="margin:18px 0 4px;color:var(--muted);">{group_title}</h5>')
