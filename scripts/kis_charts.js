@@ -110,6 +110,7 @@ function kisRenderVisible() {
   kisStickyOffset();
   kisRenderTable();
   kisSyncStatements();
+  ratingRender();
   var idx = kisIndices();
   var ser = KIS.d.series[KIS.company] || {};
   document.querySelectorAll('.kis-chart').forEach(function(el){
@@ -503,4 +504,102 @@ function kisSyncStatements() {
     var cap = document.getElementById('isCaption-' + sec);
     if (cap && cap.offsetParent !== null) onIsChange(sec);
   });
+}
+
+/* ===================== 신용평가 탭: 한국기업평가 상호저축은행업 신용평가방법론(2025.03.24) 적용 ===================== */
+var RATING = null;
+// dir: hi = 클수록 좋음(>=), lo = 작을수록 좋음(<=). th = AA, A, BBB, BB 경계. star = 상대적으로 중요한 지표(◎)
+var RATING_ITEMS = [
+  {k: 'ind', g: '사업', n: '산업위험', w: 10, q: true},
+  {k: 'share', g: '사업', n: '총자산시장점유율', w: 15, dir: 'hi', th: [8, 4, 2, 1], u: 'pct', star: true},
+  {k: 'port', g: '사업', n: '대출포트폴리오 위험', w: 12.5, q: true},
+  {k: 'mgmt', g: '사업', n: '경영 및 리스크 관리', w: 12.5, q: true},
+  {k: 'roa', g: '재무', n: '총자산이익률(ROA)', w: 7.5, dir: 'hi', th: [3, 2, 1, 0], u: 'pct'},
+  {k: 'nim', g: '재무', n: '순이자마진(NIM)', w: 5, dir: 'hi', th: [4, 3, 2, 1], u: 'pct'},
+  {k: 'subr', g: '재무', n: '고정이하여신비율', w: 5, dir: 'lo', th: [2.5, 4.5, 6.5, 8.5], u: 'pct'},
+  {k: 'cov', g: '재무', n: '대손충당금/고정이하여신', w: 7.5, dir: 'hi', th: [120, 100, 80, 60], u: 'pct'},
+  {k: 'lev', g: '재무', n: '레버리지배율', w: 10, dir: 'lo', th: [5, 7.5, 10, 12.5], u: 'x', star: true},
+  {k: 'bis', g: '재무', n: 'BIS기준 자기자본비율', w: 7.5, dir: 'hi', th: [16.5, 13.5, 10.5, 8], u: 'pct'},
+  {k: 'liq', g: '재무', n: '유동성비율', w: 7.5, dir: 'hi', th: [150, 130, 115, 100], u: 'pct'}
+];
+var RATING_GRADES = ['AA', 'A', 'BBB', 'BB', 'B'];
+
+function ratingGradeIdx(it, v) {
+  if (v === null || v === undefined) return null;
+  for (var i = 0; i < 4; i++) {
+    if (it.dir === 'hi' ? v >= it.th[i] : v <= it.th[i]) return i;
+  }
+  return 4;
+}
+function ratingModel(s) {
+  var base = s >= 4.5 ? 'AA' : s >= 3.5 ? 'A' : s >= 2.5 ? 'BBB' : s >= 1.5 ? 'BB' : 'B';
+  var center = {AA: 5, A: 4, BBB: 3, BB: 2, B: 1}[base], d = s - center;
+  var sign = (base === 'AA' || base === 'B') ? '' : (d > 1 / 6 ? '+' : (d < -1 / 6 ? '-' : ''));
+  return {base: base, label: base + sign};
+}
+function ratingFmt(it, v) {
+  if (v === null || v === undefined) return '-';
+  return it.u === 'x' ? v.toFixed(1) + '배' : v.toFixed(1) + '%';
+}
+function ratingRender() {
+  var tbl = document.getElementById('ratingResult');
+  if (!tbl || tbl.offsetParent === null) return;
+  if (!KIS) return;
+  if (!RATING) {
+    var el = document.getElementById('rating-data');
+    if (!el) return;
+    RATING = JSON.parse(el.textContent);
+  }
+  var company = KIS.company, isAll = company === RATING.allLabel;
+  var vals = isAll ? RATING.all : RATING.companies[company];
+  var q = {};
+  document.querySelectorAll('.rating-q').forEach(function(s){ q[s.dataset.k] = parseInt(s.value, 10); });
+
+  var rows = RATING_ITEMS.map(function(it){
+    var v = it.q ? null : (vals ? vals[it.k] : null);
+    var gi = it.q ? q[it.k] : ratingGradeIdx(it, v);
+    return {it: it, v: v, gi: gi};
+  });
+  var usable = rows.filter(function(r){ return r.gi !== null && r.gi !== undefined; });
+  var wsum = usable.reduce(function(s, r){ return s + r.it.w; }, 0);
+  var score = wsum ? usable.reduce(function(s, r){ return s + r.it.w * (5 - r.gi); }, 0) / wsum : null;
+  var model = score === null ? null : ratingModel(score);
+
+  document.getElementById('ratingTitle').textContent =
+    (isAll ? '저축은행 업권 전체(합산)' : company) + ' 신용평가방법론(2025.03.24) 적용 결과 (' + RATING.fy + ' 결산 기준)';
+
+  var head = '<thead><tr><th colspan="2">구분</th><th>AAA</th>' + RATING_GRADES.map(function(g){ return '<th>' + g + '</th>'; }).join('') +
+             '<th>지표값</th><th>가중치</th></tr></thead>';
+  var body = '<tbody>';
+  var gcount = {'사업': 4, '재무': 7}, gdone = {};
+  rows.forEach(function(r){
+    var it = r.it, tr = '<tr>';
+    if (!gdone[it.g]) { gdone[it.g] = true; tr += '<td class="grp" rowspan="' + gcount[it.g] + '">' + (it.g === '사업' ? '사업' : '재무') + '</td>'; }
+    tr += '<td class="item">' + it.n + '</td><td></td>';
+    for (var i = 0; i < 5; i++) tr += '<td class="mark">' + (r.gi === i ? (it.star ? '◎' : '○') : '') + '</td>';
+    tr += '<td class="num">' + (it.q ? '정성(선택)' : ratingFmt(it, r.v)) + '</td><td class="w">' + it.w.toFixed(1) + '%</td></tr>';
+    body += tr;
+  });
+  body += '<tr class="rating-model"><td colspan="2" class="item">모델등급</td><td></td>';
+  for (var j = 0; j < 5; j++) body += '<td class="mark">' + (model && model.base === RATING_GRADES[j] ? '○' : '') + '</td>';
+  body += '<td class="num">' + (model ? model.label : '-') + '</td><td class="w">100%</td></tr></tbody>';
+  tbl.innerHTML = head + body;
+
+  var st = document.getElementById('ratingScore');
+  var sb = '<thead><tr><th>평가요소</th><th>지표값</th><th>등급</th><th>점수</th><th>가중치</th><th>가중점수</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var it = r.it, has = r.gi !== null && r.gi !== undefined, sc = has ? 5 - r.gi : null;
+    sb += '<tr><td class="item">' + it.n + '</td><td class="num">' + (it.q ? '정성(선택)' : ratingFmt(it, r.v)) + '</td><td>' +
+          (has ? RATING_GRADES[r.gi] : '해당없음') + '</td><td>' + (has ? sc : '-') + '</td><td>' + it.w.toFixed(1) + '%</td><td>' +
+          (has ? (it.w * sc / 100).toFixed(2) : '-') + '</td></tr>';
+  });
+  sb += '<tr class="rating-model"><td colspan="3" class="item">합계 (가중평균 점수' + (wsum < 100 ? ', 해당없음 항목 제외 후 가중치 ' + wsum.toFixed(1) + '% 기준' : '') + ')</td><td colspan="2">' +
+        (score === null ? '-' : score.toFixed(2)) + '</td><td>' + (model ? model.label : '-') + '</td></tr></tbody>';
+  st.innerHTML = sb;
+
+  var refEl = document.getElementById('ratingRef');
+  var ref = !isAll && RATING.refs[company];
+  refEl.textContent = isAll
+    ? '업권 전체를 고르면 합산 지표로 계산해요(총자산시장점유율은 해당 없어서 제외).'
+    : ('참고: 신평사 실제 등급 - ' + (ref || '유효등급 없음'));
 }

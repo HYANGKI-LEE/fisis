@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_DIR))
 from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path, load_sector_long  # noqa: E402
 from dashboard.kpis import build_kpi_table, build_credit_rating_table  # noqa: E402
 import kis_charts  # noqa: E402
+import rating_model  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
@@ -37,7 +38,7 @@ from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot,
 # 자산건전성 이후 10개는 아직 준비중 placeholder.
 SAVINGS_BANK_TABS = [
     "주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성", "유동성",
-    "재무상태표", "손익계산서",
+    "재무상태표", "손익계산서", "신용평가",
 ]
 
 # 차트 기본 스타일: 흰 배경, 가로(y축) 그리드만
@@ -910,6 +911,8 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
         for lbl in SAVINGS_BANK_TABS[2:]
     ]
     bodies = [cr_content, perf_content] + rest
+    # 신용평가 탭(마지막): 방법론 표 + 선택 회사 평가요소별 등급 + 모델등급
+    bodies[SAVINGS_BANK_TABS.index("신용평가")] = rating_model.render_rating_tab(rating_model.build_rating_payload(sector))
 
     # 저축은행 Data Package(SBI 탭 기준) 항목 차트: 서브탭 하단에 붙임
     if kis_payload:
@@ -961,6 +964,14 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .kis-table td { padding:6px 10px; text-align:right; border-bottom:1px solid #eee; white-space:nowrap; }
 .kis-table tbody tr:nth-child(odd) td { background:#fafbfd; }
 .kis-note { margin:2px 0 8px; }
+.rating-table { width:100%; border-collapse:collapse; font-size:13px; margin:6px 0; }
+.rating-table th { background:#2c3e6b; color:#fff; padding:7px 8px; text-align:center; border:1px solid #fff; white-space:nowrap; }
+.rating-table td { padding:6px 8px; text-align:center; border:1px solid #d9dde5; white-space:nowrap; }
+.rating-table td.grp, .rating-table td.sub { background:#f3f6fa; font-weight:600; }
+.rating-table td.item { text-align:left; font-weight:500; }
+.rating-table td.mark { font-size:16px; color:#1F3864; }
+.rating-table td.num, .rating-table td.w { text-align:right; }
+.rating-table tr.rating-model td { background:#fbd5b0; font-weight:700; }
 .kis-table tr.kis-bold td { font-weight:700; background:#f3f6fa !important; }
 .kis-title { display:none; font-size:14px; font-weight:600; margin:10px 0 0; }
 .kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }

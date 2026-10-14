@@ -671,7 +671,7 @@ SECTION_TABLES = {
 }
 
 
-def render_kis_controls() -> str:
+def render_kis_controls(show_period: bool = True) -> str:
     presets = PERIOD_PRESETS
     btns = "".join(
         f'<button data-preset="{p}" onclick="{"kisCustomToggle" if p == "설정" else "kisPreset"}'
@@ -683,7 +683,7 @@ def render_kis_controls() -> str:
         '<div class="control-row"><label>회사(검색 가능) '
         f'<input type="text" class="kis-company" value="{ALL_LABEL}" list="kisCompanyList" autocomplete="off" '
         'onfocus="kisCompanyFocus(this)" onblur="kisCompanyBlur(this)" oninput="kisCompanyInput(this)"></label></div>'
-        f'<div class="period-bar"><span class="period-label">기간</span>{btns}</div>'
+        + (f'<div class="period-bar"><span class="period-label">기간</span>{btns}</div>' if show_period else '') +
         '<div class="custom-range kis-custom">'
         '<input type="text" class="kis-start" placeholder="2020.Q1" style="width:90px;"> ~ '
         '<input type="text" class="kis-end" placeholder="2026.Q2" style="width:90px;"> '
