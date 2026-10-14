@@ -450,7 +450,7 @@ def render_list_tab(rows: list[dict], qlabel: str) -> str:
         f'<h4>증권사 전체 리스트 <span class="caption" style="font-weight:normal;">(재무는 {qlabel} 기준, 열 제목을 누르면 정렬)</span></h4>'
         f'<p class="caption">현존 증권사 {len(out)}개사 중 대형 {n_big}개, 중소형 {n_small}개, 3사 모두 분류하지 않은 회사 {n_none}개(외국계 지점 등)예요. '
         '회사명/○에 마우스를 올리면 3사가 각각 어떻게 분류했는지 보여요.</p>'
-        f'<div style="overflow-x:auto;"><table class="data-table kis-ltable" id="secListTable"><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+        f'<div style="overflow-x:auto;"><table class="data-table kis-ltable" id="secListTable"><colgroup><col style="width:5%"><col style="width:13%"><col style="width:7%"><col style="width:7%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:12%"><col style="width:12%"><col style="width:11%"></colgroup><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
         '<p class="caption">분류 기준: ① 한기평(종합IB), 한신평(대형), NICE(대형IB) 중 한 곳이라도 대형으로 분류하면 대형, '
         '② 대형이 아닌 회사 중 한 곳이라도 중소형(한기평 일반증권사, 한신평 중소형, NICE 중형사·소형사)으로 분류하면 중소형이에요. '
         '자료: 3사 증권업 데이터(2026.2Q). 총자산·자기자본·ROA는 FISIS(업무보고서) 기준이고 ROA는 당기순이익(누계, 연환산) ÷ ((직전 결산말+해당 시점) 총자산 평균)이에요. '

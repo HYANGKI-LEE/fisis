@@ -985,6 +985,8 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .rating-table td.mark { font-size:16px; color:#1F3864; }
 .rating-table td.num, .rating-table td.w { text-align:right; }
 .rating-table tr.rating-model td { background:#fbd5b0; font-weight:700; }
+.kis-ltable { table-layout:fixed; font-size:14px; }
+.kis-ltable th, .kis-ltable td, .kis-ltable th:first-child, .kis-ltable td:first-child { text-align:center !important; white-space:normal; word-break:keep-all; overflow-wrap:anywhere; }
 .kis-table tr.kis-bold td, .data-table tr.kis-bold td { font-weight:700; background:#f3f6fa !important; }
 .kis-title { display:none; font-size:14px; font-weight:600; margin:10px 0 0; }
 .kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }
