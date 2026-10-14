@@ -18,6 +18,15 @@ SECTOR_FOLDERS = {
     "할부금융사": "(T)할부금융사",
 }
 
+# 여러 업권을 cross_append.py로 합쳐서 output/{이름}/{이름}_{최신분기}.csv로 만든 합산 업권 (캐피탈사 = 리스사 + 신기술금융사 + 할부금융사)
+COMBINED_SECTORS = {"캐피탈사": "캐피탈사"}
+
+# 대시보드 사이드바 순서 (데이터가 아직 없는 업권도 자리만 둔다)
+DISPLAY_ORDER = [
+    "국내은행", "신용카드사", "캐피탈사", "생명보험", "손해보험", "증권사", "자산운용사",
+    "상호저축은행", "부동산신탁", "금융지주회사", "종합금융회사",
+]
+
 DATE_COL_RE = re.compile(r"^\d{6}$")
 
 
@@ -27,9 +36,14 @@ def _output_dir():
 
 
 def latest_final_df_path(sector: str) -> str | None:
-    folder = SECTOR_FOLDERS[sector]
-    final_dir = os.path.join(_output_dir(), folder, "final_df")
-    files = [f for f in glob.glob(os.path.join(final_dir, "*.csv")) if "업데이트" not in f]
+    if sector in COMBINED_SECTORS:
+        folder = os.path.join(_output_dir(), COMBINED_SECTORS[sector])
+        files = [f for f in glob.glob(os.path.join(folder, "*.csv")) if "업데이트" not in f]
+    elif sector in SECTOR_FOLDERS:
+        final_dir = os.path.join(_output_dir(), SECTOR_FOLDERS[sector], "final_df")
+        files = [f for f in glob.glob(os.path.join(final_dir, "*.csv")) if "업데이트" not in f]
+    else:
+        return None    # 데이터를 아직 수집하지 않은 업권
     if not files:
         return None
 

@@ -26,7 +26,7 @@ import plotly.io as pio
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
 
-from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path, load_sector_long  # noqa: E402
+from dashboard.loader import DISPLAY_ORDER, SECTOR_FOLDERS, latest_final_df_path, load_sector_long  # noqa: E402
 from dashboard.kpis import build_kpi_table, build_credit_rating_table  # noqa: E402
 import kis_charts  # noqa: E402
 import rating_model  # noqa: E402
@@ -1765,7 +1765,7 @@ function renderProf(scope) {
 
 
 def build() -> str:
-    sectors = list(SECTOR_FOLDERS.keys())
+    sectors = list(DISPLAY_ORDER)
     page_keys = {s: f"sector{i}" for i, s in enumerate(sectors)}
 
     nav_links = "".join(
@@ -1778,7 +1778,12 @@ def build() -> str:
     for s in sectors:
         print(f"  - {s} 생성 중...", flush=True)
         key = page_keys[s]
-        content = render_savings_bank_page(key, s) if s == "상호저축은행" else render_sector(s)
+        if s == "상호저축은행":
+            content = render_savings_bank_page(key, s)
+        elif latest_final_df_path(s) is None:
+            content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+        else:
+            content = render_sector(s)
         page_divs.append(f'<div class="page" id="page-{key}"><h1>{s}</h1>{content}</div>')
 
     generated_at = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
