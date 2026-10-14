@@ -20,3 +20,6 @@ scheduler/run_daily.log
 # 로컬 가상환경 (작업 스케줄러 전용, 로밍 프로필 접근 문제 우회용)
 .venv/
 scheduler/logs/
+
+# 엑셀 원본(한국기업평가 증권업 재무자료)은 올리지 않음 - 추출본(data/securities_excel.json)만 사용
+data/*.xlsx

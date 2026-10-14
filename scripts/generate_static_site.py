@@ -11,6 +11,7 @@ TradingCheckboard(../TradingCheckboard/scripts/generate_static_site.py)와 같�
 JSON으로 통째로 내장해서 서버 없이 클라이언트에서 바로 전환되게 한다.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,8 @@ from dashboard.loader import DISPLAY_ORDER, SECTOR_FOLDERS, latest_final_df_path
 from dashboard.kpis import build_kpi_table, build_credit_rating_table  # noqa: E402
 import kis_charts  # noqa: E402
 import rating_model  # noqa: E402
+import sec_charts  # noqa: E402
+import sec_data  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
@@ -928,6 +931,15 @@ def render_savings_bank_page(sector_key: str, sector: str) -> str:
     return tabs_html(SAVINGS_BANK_TABS, bodies)
 
 
+def render_securities_page(sector_key: str, sector: str) -> str:
+    """증권사: 상호저축은행과 같은 양식(공통 회사/기간 선택줄 + 표 + 3열 차트), 엑셀 '증권사비교' 시트 기준 항목."""
+    payload = sec_data.build_sec_payload()
+    if payload is None:
+        return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+    bodies = sec_charts.render_bodies(sector_key, payload["quarters"])
+    return tabs_html(sec_charts.TAB_LABELS, bodies) + sec_charts.render_data_script(payload)
+
+
 CSS = """
 :root { --accent:#2980B9; --border:#e5e7eb; --text:#222; --muted:#666; --bg:#fff; --side-bg:#f7f8fa; }
 * { box-sizing: border-box; }
@@ -972,7 +984,7 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .rating-table td.mark { font-size:16px; color:#1F3864; }
 .rating-table td.num, .rating-table td.w { text-align:right; }
 .rating-table tr.rating-model td { background:#fbd5b0; font-weight:700; }
-.kis-table tr.kis-bold td { font-weight:700; background:#f3f6fa !important; }
+.kis-table tr.kis-bold td, .data-table tr.kis-bold td { font-weight:700; background:#f3f6fa !important; }
 .kis-title { display:none; font-size:14px; font-weight:600; margin:10px 0 0; }
 .kis-title span { font-weight:normal; color:var(--muted); font-size:12px; }
 .is-table td:first-child { text-align:left; }
@@ -1778,8 +1790,13 @@ def build() -> str:
     for s in sectors:
         print(f"  - {s} 생성 중...", flush=True)
         key = page_keys[s]
-        if s == "상호저축은행":
+        only = os.environ.get("FISIS_ONLY")   # 개발용: 지정한 업권(쉼표 구분)만 만들고 나머지는 빈 페이지
+        if only and s not in only.split(","):
+            content = '<p class="caption">(개발 모드: 생성 생략)</p>'
+        elif s == "상호저축은행":
             content = render_savings_bank_page(key, s)
+        elif s == "증권사":
+            content = render_securities_page(key, s)
         elif latest_final_df_path(s) is None:
             content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
         else:

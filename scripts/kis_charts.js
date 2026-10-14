@@ -14,21 +14,29 @@ function kisXAxis(n) {
   return {type: 'category', tickangle: -45, tickfont: {size: 10}, tickmode: 'linear', tick0: (n - 1) % 4, dtick: 4};
 }
 
+var KIS_POOL = {};
+// 업권 페이지마다 자기 데이터/선택 상태(KIS)를 따로 가짐: 지금 보이는 페이지의 것을 KIS로 고른다
+function kisRoot() { return document.querySelector('.page.active') || document; }
 function kisInit() {
-  if (KIS) return true;
-  var el = document.getElementById('kis-data');
+  var root = kisRoot();
+  var el = root.querySelector('script.kis-data');
   if (!el) return false;
-  KIS = {d: JSON.parse(el.textContent), company: null, preset: '전체', start: null, end: null, version: 0, target: 8};
-  KIS.company = KIS.d.allLabel;
-  kisFillList(false);
-  document.querySelectorAll('.period-bar button[data-preset="전체"]').forEach(function(b){
-    if (b.closest('.kis-controls')) b.classList.add('active');
-  });
+  if (!KIS_POOL[el.id]) {
+    var st = {d: JSON.parse(el.textContent), company: null, preset: '전체', start: null, end: null, version: 0, target: 8, key: el.id};
+    st.company = st.d.allLabel;
+    KIS_POOL[el.id] = st;
+    KIS = st;
+    kisFillList(false);
+    root.querySelectorAll('.period-bar button[data-preset="전체"]').forEach(function(b){
+      if (b.closest('.kis-controls')) b.classList.add('active');
+    });
+  }
+  KIS = KIS_POOL[el.id];
   return true;
 }
 
 function kisFillList(all) {
-  var list = document.getElementById('kisCompanyList');
+  var list = kisRoot().querySelector('datalist.kis-datalist');
   if (!list || !KIS) return;
   var names = all ? KIS.d.companies : KIS.d.rated;
   list.innerHTML = names.map(function(c){ return '<option value="' + c + '">'; }).join('');
@@ -53,7 +61,7 @@ function kisCompanyBlur(el) {
 function kisSetCompany(name) {
   if (KIS.company === name) return;
   KIS.company = name;
-  document.querySelectorAll('.kis-company').forEach(function(i){ if (document.activeElement !== i) i.value = name; });
+  kisRoot().querySelectorAll('.kis-company').forEach(function(i){ if (document.activeElement !== i) i.value = name; });
   KIS.version++;
   kisRenderVisible();
 }
@@ -61,10 +69,10 @@ function kisSetCompany(name) {
 function kisPreset(preset, btn) {
   if (!kisInit()) return;
   KIS.preset = preset;
-  document.querySelectorAll('.kis-controls .period-bar button').forEach(function(b){
+  kisRoot().querySelectorAll('.kis-controls .period-bar button').forEach(function(b){
     b.classList.toggle('active', b.dataset.preset === preset);
   });
-  document.querySelectorAll('.kis-custom').forEach(function(b){ b.classList.remove('show'); });
+  kisRoot().querySelectorAll('.kis-custom').forEach(function(b){ b.classList.remove('show'); });
   KIS.version++;
   kisRenderVisible();
 }
@@ -81,9 +89,9 @@ function kisCustomApply(btn) {
   var s = box.querySelector('.kis-start').value.trim(), e = box.querySelector('.kis-end').value.trim();
   if (!s || !e) return;
   KIS.preset = '설정'; KIS.start = s; KIS.end = e;
-  document.querySelectorAll('.kis-start').forEach(function(i){ i.value = s; });
-  document.querySelectorAll('.kis-end').forEach(function(i){ i.value = e; });
-  document.querySelectorAll('.kis-controls .period-bar button').forEach(function(b){
+  kisRoot().querySelectorAll('.kis-start').forEach(function(i){ i.value = s; });
+  kisRoot().querySelectorAll('.kis-end').forEach(function(i){ i.value = e; });
+  kisRoot().querySelectorAll('.kis-controls .period-bar button').forEach(function(b){
     b.classList.toggle('active', b.dataset.preset === '설정');
   });
   KIS.version++;
@@ -113,10 +121,17 @@ function kisRenderVisible() {
   ratingRender();
   var idx = kisIndices();
   var ser = KIS.d.series[KIS.company] || {};
-  document.querySelectorAll('.kis-chart').forEach(function(el){
+  kisRoot().querySelectorAll('.kis-ctable').forEach(function(box){
+    if (box.offsetParent === null || box.dataset.v === String(KIS.version)) return;
+    box.dataset.v = String(KIS.version);
+    kisRenderCtable(box, idx);
+  });
+  kisRoot().querySelectorAll('.kis-chart').forEach(function(el){
     if (el.offsetParent === null) return;                       // 숨겨진 탭
     if (el.dataset.v === String(KIS.version)) return;           // 이미 최신
     el.dataset.v = String(KIS.version);
+    if (el.dataset.cbar) { kisRenderCbar(el, idx); return; }
+    if (el.dataset.stack) { kisRenderStack(el, ser, idx); return; }
     if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
     if (el.dataset.scatter) { kisRenderScatter(el, idx); return; }
     if (el.dataset.cmp3) { kisRenderCmp3(el, ser, idx); return; }
@@ -311,21 +326,26 @@ function kisStickyOffset() {
       tb = panel && panel.parentElement.querySelector('.tab-bar');
   if (!h || !tb) return;
   var top = (parseInt(getComputedStyle(tb).top, 10) || h.offsetHeight) + tb.offsetHeight;   // 탭바의 sticky top + 탭바 높이
-  document.querySelectorAll('.kis-controls').forEach(function(c){ c.style.top = top + 'px'; });
+  kisRoot().querySelectorAll('.kis-controls').forEach(function(c){ c.style.top = top + 'px'; });
 }
 window.addEventListener('resize', function(){ if (KIS) kisStickyOffset(); });
 
 // 선택 회사 vs 업권 전체 vs 신평사 유효등급 보유사 비교 추이
 function kisRenderCmp3(el, ser, idx) {
   var cfg = JSON.parse(el.dataset.cmp3), k = cfg.k, S = KIS.d.series;
-  var all = S[KIS.d.allLabel] || {}, rated = S[KIS.d.ratedLabel] || {};
+  var all = S[KIS.d.allLabel] || {};
   var isAll = KIS.company === KIS.d.allLabel;
   var sources = [];
   var gray = !!cfg.gray;   // 자산건전성처럼 비교선을 회색 계열로 그리는 차트
   var suffix = el.dataset.unit === '%' ? '%' : el.dataset.unit;   // '배' 같은 단위는 그대로 붙임
+  var groups = KIS.d.groups || [KIS.d.ratedLabel];
+  var pal = gray ? [['#666666', 'dot'], ['#B0B0B0', 'dash'], ['#999999', 'dashdot']]
+                 : [['#555555', 'dot'], ['#ED7D31', 'dash'], ['#70AD47', 'dashdot']];
   if (!isAll) sources.push({name: kisShort(KIS.company), s: ser, color: '#2980B9', width: 2.8, dash: 'solid'});
-  sources.push({name: '업권 전체', s: all, color: gray ? '#666666' : '#555555', width: 2.2, dash: 'dot'});
-  sources.push({name: KIS.d.ratedLabel, s: rated, color: gray ? '#B0B0B0' : '#ED7D31', width: 2.2, dash: 'dash'});
+  sources.push({name: KIS.d.groups ? KIS.d.allLabel : '업권 전체', s: all, color: pal[0][0], width: 2.2, dash: pal[0][1]});
+  groups.forEach(function(gl, gi){
+    sources.push({name: gl, s: S[gl] || {}, color: pal[gi + 1][0], width: 2.2, dash: pal[gi + 1][1]});
+  });
   sources = sources.filter(function(src){ return src.s[k]; });
   var firstOk = idx.length;
   sources.forEach(function(src){
@@ -374,7 +394,7 @@ function kisQLabel(q) {   // '2026.Q2' -> '2026.06'
   return m ? m[1] + '.' + ('0' + (parseInt(m[2], 10) * 3)).slice(-2) : q;
 }
 function kisRenderTable() {
-  document.querySelectorAll('.kis-table').forEach(function(tb){
+  kisRoot().querySelectorAll('.kis-table').forEach(function(tb){
     if (tb.offsetParent === null || tb.dataset.v === String(KIS.version)) return;
     tb.dataset.v = String(KIS.version);
     var rows = JSON.parse(tb.dataset.rows);
@@ -388,7 +408,7 @@ function kisRenderTable() {
       if (v === null || v === undefined) return '-';
       if (u === 'eok') return v.toLocaleString('ko-KR', {maximumFractionDigits: 0});
       if (u === 'x') return v.toFixed(1);
-      return v.toFixed(1) + '%';
+      return v.toLocaleString('ko-KR', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
     };
     tb.querySelector('thead').innerHTML = '<tr><th>구분</th>' + cols.map(function(c){ return '<th>' + kisQLabel(q[c.i]) + '</th>'; }).join('') + '</tr>';
     tb.querySelector('tbody').innerHTML = rows.map(function(r){
@@ -407,13 +427,19 @@ function kisRenderTable() {
 // 여러 지표를 한 차트에: 지표별 색, 선택 회사(실선) / 업권 전체(점선) / 신평사 유효등급 보유사(파선)
 function kisRenderCmp3m(el, ser, idx) {
   var cfg = JSON.parse(el.dataset.cmp3m), S = KIS.d.series;
-  var all = S[KIS.d.allLabel] || {}, rated = S[KIS.d.ratedLabel] || {};
+  var all = S[KIS.d.allLabel] || {};
   var isAll = KIS.company === KIS.d.allLabel;
   var lines = [];
+  var groups = KIS.d.groups || [KIS.d.ratedLabel];
+  var gdash = ['dash', 'dashdot'];
   cfg.ks.forEach(function(m){
     if (!isAll && ser[m.k]) lines.push({name: m.n + ' · ' + kisShort(KIS.company), v: ser[m.k], color: m.c, width: 2.8, dash: 'solid'});
     if (all[m.k]) lines.push({name: m.n + (isAll ? '' : ' · 업권 전체'), v: all[m.k], color: m.c, width: 2.2, dash: isAll ? 'solid' : 'dot'});
-    if (rated[m.k]) lines.push({name: m.n + ' · 유효등급 ' + (KIS.d.ratedLabel.match(/[0-9]+/) || [''])[0] + '개사', v: rated[m.k], color: m.c, width: 2.2, dash: 'dash'});
+    groups.forEach(function(gl, gi){
+      var gs = S[gl] || {};
+      if (gs[m.k]) lines.push({name: m.n + ' · ' + (KIS.d.groups ? gl : '유효등급 ' + (gl.match(/[0-9]+/) || [''])[0] + '개사'),
+                               v: gs[m.k], color: m.c, width: 2.2, dash: gdash[gi]});
+    });
   });
   var firstOk = idx.length;
   lines.forEach(function(l){
@@ -440,7 +466,7 @@ function kisSetTarget(el) {
   var v = parseFloat(el.value);
   if (!isFinite(v) || v < 0) return;
   KIS.target = v;
-  document.querySelectorAll('.kis-target').forEach(function(i){ if (i !== el) i.value = el.value; });
+  kisRoot().querySelectorAll('.kis-target').forEach(function(i){ if (i !== el) i.value = el.value; });
   KIS.version++;
   kisRenderVisible();
 }
@@ -504,6 +530,115 @@ function kisSyncStatements() {
     var cap = document.getElementById('isCaption-' + sec);
     if (cap && cap.offsetParent !== null) onIsChange(sec);
   });
+}
+
+// 선택 회사의 구성 항목을 쌓은 막대로 (영업순수익 구성, 총자산 대비 손익 구성 등)
+function kisRenderStack(el, ser, idx) {
+  var specs = JSON.parse(el.dataset.stack), unit = el.dataset.unit;
+  specs = specs.filter(function(sp){ return ser[sp.k]; });
+  if (!specs.length) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
+  var firstOk = idx.length;
+  specs.forEach(function(sp){
+    var j = 0;
+    while (j < idx.length && (ser[sp.k][idx[j]] === null || ser[sp.k][idx[j]] === undefined)) j++;
+    if (j < firstOk) firstOk = j;
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var fmt = unit === '억원' ? ',.0f' : '.2f';
+  var traces = specs.map(function(sp){
+    return {x: x, y: idxC.map(function(i){ return ser[sp.k][i]; }), type: 'bar', name: sp.n, marker: {color: sp.c},
+            hovertemplate: '%{x}<br>' + sp.n + ' %{y:' + fmt + '}' + unit + '<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    barmode: 'relative', height: 352, margin: {t: 50, b: 60, l: 60, r: 10}, title: kisTitle(el),
+    xaxis: kisXAxis(x.length), yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
+    legend: {}
+  }, {displaylogo: false, responsive: true});
+}
+
+// 회사별 비교 막대: 지표/기준 분기를 고르면 전 회사를 큰 순서로 (선택 회사는 빨강)
+function kisCbarChange(sel) {
+  var el = sel.closest('.kis-cbar-box').querySelector('.kis-chart');
+  if (!kisInit()) return;
+  el.dataset.v = '';
+  kisRenderVisible();
+}
+function kisRenderCbar(el, idx) {
+  var cell = el.closest('.kis-cbar-box');
+  var metric = cell.querySelector('.kis-cbar-metric').value, q = cell.querySelector('.kis-cbar-q').value;
+  var spec = JSON.parse(el.dataset.cbar).filter(function(m){ return m.k === metric; })[0] || {};
+  var qi = KIS.d.quarters.indexOf(q), S = KIS.d.series;
+  var names = KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel; });
+  var pairs = names.map(function(c){ return [c, S[c] && S[c][metric] ? S[c][metric][qi] : null]; })
+    .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
+  if (!pairs.length) { emptyChartMsg(el.id, q + '에는 ' + (spec.n || metric) + ' 데이터가 없어요. 다른 분기를 선택해보세요.'); return; }
+  pairs.sort(function(a, b){ return b[1] - a[1]; });
+  var unit = spec.u || '%';
+  plotReact(el.id, [{
+    x: pairs.map(function(p){ return p[0]; }), y: pairs.map(function(p){ return p[1]; }), type: 'bar',
+    marker: {color: pairs.map(function(p){ return p[0] === KIS.company ? '#E8312F' : '#2980B9'; })},
+    hovertemplate: '%{x}<br>' + (spec.n || metric) + ' %{y:' + (unit === '억원' ? ',.0f' : '.2f') + '}' + unit + '<extra></extra>'
+  }], {
+    height: 420, margin: {t: 20, b: 110, l: 60, r: 10}, xaxis: {tickangle: -45, tickfont: {size: 11}},
+    yaxis: {title: (spec.n || metric) + ' (' + unit + ')', tickformat: unit === '억원' ? ',' : undefined}, showlegend: false
+  }, {displaylogo: false, responsive: true});
+}
+
+// 회사별 최신 실적 표: 선택 기간의 마지막 분기 기준, 열 제목을 누르면 정렬
+function kisCtableSort(th, ci) {
+  var box = th.closest('.kis-ctable');
+  var st = JSON.parse(box.dataset.sort || '{"c":-1,"d":-1}');
+  st = (st.c === ci) ? {c: ci, d: -st.d} : {c: ci, d: ci === 0 ? 1 : -1};
+  box.dataset.sort = JSON.stringify(st);
+  if (!kisInit()) return;
+  box.dataset.v = '';
+  kisRenderVisible();
+}
+function kisRenderCtable(box, idx) {
+  var cols = JSON.parse(box.dataset.ctable), S = KIS.d.series, qi = idx[idx.length - 1];
+  var st = JSON.parse(box.dataset.sort || '{"c":-1,"d":-1}');
+  var cellVal = function(c, col) {
+    var s = S[c] && S[c][col.k];
+    if (!s) return null;
+    var cur = s[qi];
+    if (cur === null || cur === undefined) return null;
+    if (col.yoy) {
+      var prev = qi >= 4 ? s[qi - 4] : null;
+      return (prev === null || prev === undefined || prev === 0) ? null : (cur - prev) / Math.abs(prev) * 100;
+    }
+    return cur;
+  };
+  var fmt = function(v, u) {
+    if (v === null || v === undefined) return '-';
+    if (u === 'eok') return v.toLocaleString('ko-KR', {maximumFractionDigits: 0});
+    if (u === 'x') return v.toFixed(1);
+    return v.toLocaleString('ko-KR', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
+  };
+  var names = KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel; });
+  var rows = names.map(function(c){ return {c: c, v: cols.map(function(col){ return cellVal(c, col); })}; });
+  if (st.c >= 0) {
+    rows.sort(function(a, b){
+      var av = st.c === 0 ? a.c : a.v[st.c - 1], bv = st.c === 0 ? b.c : b.v[st.c - 1];
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      return (av < bv ? -1 : av > bv ? 1 : 0) * st.d;
+    });
+  }
+  var arrow = function(i){ return st.c === i ? (st.d === 1 ? ' ▲' : ' ▼') : ''; };
+  var head = '<tr><th>No</th><th class="sortable" onclick="kisCtableSort(this,0)">금융회사명' + arrow(0) + '</th>' +
+    cols.map(function(col, i){ return '<th class="sortable" onclick="kisCtableSort(this,' + (i + 1) + ')">' + col.n + arrow(i + 1) + '</th>'; }).join('') + '</tr>';
+  var body = rows.map(function(r, i){
+    return '<tr' + (r.c === KIS.company ? ' class="kis-bold"' : '') + '><td>' + (i + 1) + '</td><td>' + r.c + '</td>' +
+      r.v.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
+  }).join('');
+  var allv = cols.map(function(col){ return cellVal(KIS.d.allLabel, col); });
+  body += '<tr class="kis-bold"><td></td><td>' + KIS.d.allLabel + '</td>' + allv.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
+  box.querySelector('thead').innerHTML = head;
+  box.querySelector('tbody').innerHTML = body;
+  var cap = box.parentElement.querySelector('.kis-ctable-q');
+  if (cap) cap.textContent = KIS.d.quarters[qi];
 }
 
 /* ===================== 신용평가 탭: 한국기업평가 상호저축은행업 신용평가방법론(2025.03.24) 적용 ===================== */

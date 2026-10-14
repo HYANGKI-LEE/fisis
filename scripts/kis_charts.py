@@ -748,6 +748,6 @@ def render_kis_block(tab_label: str) -> str:
 
 
 def render_kis_data_script(payload: dict) -> str:
-    return ('<datalist id="kisCompanyList"></datalist>'
-            '<script type="application/json" id="kis-data">'
+    return ('<datalist class="kis-datalist" id="kisCompanyList"></datalist>'
+            '<script type="application/json" class="kis-data" id="kis-data">'
             f'{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}</script>')
