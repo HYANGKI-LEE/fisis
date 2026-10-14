@@ -17,6 +17,8 @@ def setup_args() -> Namespace:
     parser.add_argument('--lrgDiv_', type=str)
     parser.add_argument('--startBaseMm_', type=str)
     parser.add_argument('--endBaseMm_', type=str)
+    parser.add_argument('--shard', type=str, default='0/1',
+                        help='i/n - 통계표 목록을 n등분해 i번째만 수집 (최초 적재를 병렬로 돌릴 때 사용)')
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -39,6 +41,10 @@ if __name__ == '__main__':
 
         list_list = fisis_getter.getStatisticsListSearch(lrgDiv=args.lrgDiv_, smlDiv=sml_div)['result']['list']
         print(list_list)
+
+        shard_i, shard_n = [int(x) for x in args.shard.split('/')]
+        # 완료 여부 필터 전에 나눠야 재시도 때 분담이 안 바뀜
+        list_list = [l for j, l in enumerate(list_list) if j % shard_n == shard_i]
 
         list_for_target=[]
         for list_ in list_list:

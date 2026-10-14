@@ -91,6 +91,18 @@ def main() -> int:
         log("=== 종료 ===\n")
         return 0
 
+    # GitHub는 100MB 넘는 파일 push를 거부함 - 새로 만든 대용량 final_df가 있으면
+    # commit까지 해버려 push가 계속 막히는 상황을 만들기 전에 여기서 멈춤
+    too_big = []
+    for rel in changed_paths:
+        path = os.path.join(REPO_ROOT, rel.strip('"'))
+        if os.path.isfile(path) and os.path.getsize(path) > 95 * 1024 * 1024:
+            too_big.append(f"{rel} ({os.path.getsize(path) / 1024 / 1024:.0f}MB)")
+    if too_big:
+        log("100MB에 가까운 대용량 파일이 있어 commit/push 하지 않고 중단: " + ", ".join(too_big))
+        log("=== 종료(대용량 파일) ===\n")
+        return 1
+
     log(f"변경 파일 {len(changed_paths)}개 감지 - commit/push 진행")
     run(["git", "add", "--", "output/"])
 

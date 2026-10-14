@@ -14,10 +14,15 @@
   공시된 마지막 분기까지 알아낸 뒤, 그 범위를 request.py 한 번으로 받는다 (호출 수는
   기간 폭과 무관하므로 여러 분기가 밀려 있어도 1회 수집으로 따라잡음).
 - 새 분기가 하나도 없으면 아무 것도 하지 않는다.
+- final_df가 아직 없는 업권(새로 추가한 업권)은 "최초 적재"를 한다: 2007.03부터 공시된
+  최신 분기까지 40분기(API 한도)씩 끊어 받고, 통계표를 여러 프로세스로 나눠 병렬 수집한 뒤
+  process.py -> merge.py로 final_df를 처음 만든다. 이 경우엔 과거 long_df가 전부 로컬에
+  있으므로 merge.py를 써도 안전하다. 중간에 끊겨도 완료된 통계표는 건너뛰므로 다음 실행에서
+  이어서 받는다.
 - 하나라도 갱신되면 cross_append.py로 보험사(H+I)/캐피탈사(K+N+T) 후처리.
 - 업권별 진행 로그는 scheduler/logs/{업권}.log 에 실시간으로 남는다.
 
-주의: merge.py는 안 쓴다. merge.py는 "로컬에 있는 long_df/wide_df 전체"를 다시
+주의: (증분 갱신에서) merge.py는 안 쓴다. merge.py는 "로컬에 있는 long_df/wide_df 전체"를 다시
 모아서 final_df를 새로 생성하는 구조인데, 이 저장소는 final_df만 git에 남기고
 long_df/wide_df는 로컬 전용(sparse-checkout)이라 과거 long_df가 로컬에 없음 -
 merge.py를 그대로 돌리면 "이번에 받은 새 분기만" 있는 걸로 final_df를 덮어써서
@@ -118,6 +123,11 @@ def probe_quarter_available(lrgDiv: str, quarter: int) -> bool:
 
 
 MAX_CATCHUP_QUARTERS = 12
+INITIAL_START = 200703          # 최초 적재 시작 분기 (기존 업권들의 첫 버킷과 동일)
+INITIAL_PROBE_BASE = 202412     # 최신 분기 탐색의 출발점 (이 분기까지는 공시돼 있다고 가정)
+API_MAX_QUARTERS = 40           # FISIS API: 검색 기간은 40분기를 초과할 수 없음
+INITIAL_SHARDS_BIG = 4          # 회사 수가 많은 업권의 최초 적재 병렬 프로세스 수
+BIG_SECTOR_COMPANIES = 100
 HEAVY_STEP_SLOTS = threading.Semaphore(3)  # process/병합은 메모리를 꽤 써서 동시 실행 수 제한
 PRINT_LOCK = threading.Lock()
 LOG_DIR = os.path.join(REPO_ROOT, "scheduler", "logs")
@@ -193,6 +203,80 @@ def find_latest_available_quarter(lrgDiv: str, existing: int, logger: SectorLogg
     return latest
 
 
+def add_quarters(yyyymm: int, n: int) -> int:
+    year, month = divmod(yyyymm, 100)
+    idx = year * 4 + (month // 3 - 1) + n
+    return (idx // 4) * 100 + (idx % 4 + 1) * 3
+
+
+def initial_chunks(start: int, end: int) -> list[tuple[int, int]]:
+    """start~end를 API 한도(40분기) 이내의 (시작, 끝) 구간들로 나눔."""
+    chunks, cur = [], start
+    while cur <= end:
+        chunk_end = min(add_quarters(cur, API_MAX_QUARTERS - 1), end)
+        chunks.append((cur, chunk_end))
+        cur = next_quarter_label(chunk_end)
+    return chunks
+
+
+def initial_load(sector: str, lrgDiv: str, lrgDivNm: str, dry_run: bool, logger: SectorLogger) -> bool:
+    """final_df가 없는 업권의 최초 전체 이력 적재."""
+    try:
+        latest = find_latest_available_quarter(lrgDiv, INITIAL_PROBE_BASE, logger)
+        n_companies = len([c for c in fisis_getter.getCompanySearch(partDiv=lrgDiv)["result"]["list"]
+                           if "[폐]" not in c["finance_nm"]])
+    except Exception as e:  # noqa: BLE001
+        logger.log(f"최초 적재 준비 중 에러: {e} - 건너뜀")
+        return False
+
+    chunks = initial_chunks(INITIAL_START, latest)
+    n_shards = INITIAL_SHARDS_BIG if n_companies > BIG_SECTOR_COMPANIES else 1
+    logger.log(f"최초 적재 대상: {INITIAL_START}~{latest}, 회사 {n_companies}개, "
+               f"구간 {chunks}, 병렬 프로세스 {n_shards}개")
+    if dry_run:
+        logger.log("(dry-run) 수집/병합 생략")
+        return False
+
+    def collect(shard_i: int) -> bool:
+        for start_q, end_q in chunks:
+            ok = False
+            for attempt in (1, 2):
+                ok = run_step(
+                    [sys.executable, "request.py", "--lrgDiv_", lrgDiv,
+                     "--startBaseMm_", str(start_q), "--endBaseMm_", str(end_q),
+                     "--shard", f"{shard_i}/{n_shards}"], logger,
+                )
+                if ok:
+                    break
+                logger.log(f"request.py 실패 (shard {shard_i}, {start_q}~{end_q}, 시도 {attempt}/2)")
+            if not ok:
+                return False
+        return True
+
+    with ThreadPoolExecutor(max_workers=n_shards) as ex:
+        shard_ok = list(ex.map(collect, range(n_shards)))
+    if not all(shard_ok):
+        logger.log("일부 수집이 실패해서 병합하지 않음 - 다음 실행 때 이어서 받음")
+        return False
+
+    with HEAVY_STEP_SLOTS:
+        if not run_step([sys.executable, "process.py", "--lrgDiv_", lrgDiv], logger):
+            return False
+        if not run_step([sys.executable, "merge.py", "--lrgDiv_", lrgDiv], logger):
+            return False
+
+    new_existing = existing_max_period(sector)
+    if new_existing is None:
+        logger.log("merge.py 후에도 final_df가 없음")
+        return False
+    size_mb = os.path.getsize(latest_final_df_path(sector)) / 1024 / 1024
+    logger.log(f"final_df 생성: {latest_final_df_path(sector)} ({size_mb:.1f}MB)")
+    if size_mb > 90:
+        logger.log("경고: GitHub 파일 한도(100MB)에 근접/초과 - run_daily가 push를 막을 수 있음")
+    logger.log(f"[{sector}] 업데이트됨: 0 -> {new_existing}")
+    return True
+
+
 def check_and_update_sector(sector: str, folder: str, dry_run: bool = False) -> bool:
     logger = SectorLogger(sector)
     try:
@@ -201,8 +285,8 @@ def check_and_update_sector(sector: str, folder: str, dry_run: bool = False) -> 
 
         existing = existing_max_period(sector)
         if existing is None:
-            logger.log("기존 final_df가 없음 - 건너뜀 (최초 적재는 수동으로)")
-            return False
+            logger.log("기존 final_df가 없음 - 최초 전체 적재 진행")
+            return initial_load(sector, lrgDiv, lrgDivNm, dry_run, logger)
         logger.log(f"기존 최신 분기: {existing}")
 
         try:
