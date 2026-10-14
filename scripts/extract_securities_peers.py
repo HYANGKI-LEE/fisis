@@ -2,7 +2,8 @@
 
 - KR  : (Data Sheet) 증권업 재무자료 - 종합IB 9개사 = 대형, 일반증권사 = 중소형 / 신용등급현황 시트(장기(전망)/단기)
 - 한신평: 증권업DataPackage - Peer Snapshot 회사 순서와 대형/중소형 자산총계 합계로 구성원을 역산 / 신용등급 현황 시트
-- NICE: 증권 NDB - 산업(횡단면)_대형IB / 중형사 / 소형사 시트의 회사 열 (중형사+소형사 = 중소형). 파일에 신용등급은 없음.
+- NICE: 증권 NDB - 산업(횡단면)_대형IB / 중형사 / 소형사 시트의 회사 열 (중형사+소형사 = 중소형). 신용등급은 NDB에 없어서
+      NICE Market Comment 부록 표(2026.06)를 NICE_RATINGS에 옮겨 적었다.
 엑셀 원본은 저장소에 올리지 않고(.gitignore) 이 스크립트가 만든 JSON만 쓴다.
 
 사용: python scripts/extract_securities_peers.py [KR엑셀] [한신평엑셀] [NICE엑셀]
@@ -114,6 +115,27 @@ def kis(path: Path) -> dict:
     return {"groups": groups, "ratings": ratings, "asof": "2026.06", "big_members": names[:k]}
 
 
+# NICE신용평가 Market Comment 부록 '증권업 신용등급 분포 및 추이'(2026.06 열) 표를 옮겨 적음: 이름 -> (장기, 단기), None = 표에서 '-'
+NICE_RATINGS = {
+    "한국투자증권": ("AA/S", "A1"), "미래에셋증권": ("AA/S", "A1"), "NH투자증권": ("AA+/S", "A1"), "삼성증권": ("AA+/S", None),
+    "메리츠증권": ("AA/S", "A1"), "KB증권": ("AA+/S", "A1"), "하나증권": ("AA/S", None), "키움증권": ("AA/S", "A1"),
+    "신한투자증권": ("AA/S", "A1"), "대신증권": ("AA-/S", "A1"), "우리투자증권": (None, "A1"), "교보증권": ("AA-/S", "A1"),
+    "한화투자증권": ("AA-/S", "A1"), "유안타증권": ("AA-/S", "A1"), "신영증권": ("AA-/S", "A1"), "현대차증권": ("AA-/S", "A1"),
+    "IBK투자증권": ("AA-/S", "A1"), "BNK투자증권": ("A+/S", "A1"), "IM증권": (None, "A1"), "유진투자증권": ("A/S", "A2+"),
+    "DB증권": ("A+/S", "A1"), "LS증권": ("A/S", "A2+"), "부국증권": (None, "A2+"), "다올투자증권": ("BBB+/S[후]", "A2-"),
+    "SK증권": ("BBB+/S[후]", "A2"), "한양증권": (None, "A2"), "DS투자증권": ("A-/S", "A2-"), "케이프투자증권": ("A-/S", "A2-"),
+    "리딩투자증권": ("BBB+/P", "A3+"),
+}
+
+
+def _nice_rating(long_, short):
+    if long_ and short:
+        return f"{long_} · {short}"
+    if long_:
+        return long_
+    return f"{short}(단기)" if short else None
+
+
 def nice(path: Path) -> dict:
     wb = openpyxl.load_workbook(path, data_only=True)
     groups, detail = {}, {}
@@ -127,7 +149,8 @@ def nice(path: Path) -> dict:
             if isinstance(n, str) and n.strip():
                 groups[code(n)] = grp
                 detail[code(n)] = label
-    return {"groups": groups, "detail": detail, "ratings": {}, "asof": "2026.06"}
+    ratings = {code(n): _nice_rating(*v) for n, v in NICE_RATINGS.items()}
+    return {"groups": groups, "detail": detail, "ratings": ratings, "asof": "2026.06"}
 
 
 def main():
