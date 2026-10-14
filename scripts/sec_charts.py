@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from kis_charts import PERIOD_PRESETS, _table_html  # noqa: E402
 from sec_data import ALL_LABEL  # noqa: E402
 
-TAB_LABELS = ["주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성", "유동성", "파생결합증권", "재무상태표", "손익계산서"]
+TAB_LABELS = ["주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성", "유동성", "파생결합증권", "재무상태표", "손익계산서", "전체 리스트"]
 COLUMNS = 3
 DATA_ID = "kis-data-sec"
 LIST_ID = "kisCompanyList-sec"
@@ -383,7 +383,83 @@ def _tables(tab):
     return "".join(out)
 
 
-def render_bodies(prefix: str, quarters: list[str]) -> list[str]:
+GRADE_ORDER = ["AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-", "BB+", "BB", "BB-", "B+", "B", "B-"]
+
+
+def _grade_rank(rating: str | None) -> str:
+    """등급 문자열의 장기등급 순위(높을수록 좋음). 장기등급이 없으면(단기등급만) 빈 값."""
+    if not rating:
+        return ""
+    head = rating.replace("(단기)", "").split("/")[0]
+    head = head.split("(")[0].strip()
+    return str(len(GRADE_ORDER) - GRADE_ORDER.index(head)) if head in GRADE_ORDER else ""
+
+
+def render_list_tab(rows: list[dict], qlabel: str) -> str:
+    """전체 리스트: 현존 증권사별 대형/중소형 분류(3사 기준 통합), 총자산·자기자본·ROA, 3사 신용등급."""
+    peers_path = Path(__file__).resolve().parent.parent / "data" / "securities_peers.json"
+    if not peers_path.exists():
+        return '<p class="caption">대형/중소형 분류 자료(data/securities_peers.json)가 없어요.</p>'
+    peers = json.loads(peers_path.read_text(encoding="utf-8"))
+    src_names = {"KR": "한기평", "KIS": "한신평", "NICE": "NICE"}
+    out = []
+    for r in rows:
+        c = str(r["code"])
+        tags, sizes = [], []
+        for k in ("KR", "KIS", "NICE"):
+            g = peers[k]["groups"].get(c)
+            if g:
+                label = peers[k].get("detail", {}).get(c) or ("종합IB" if k == "KR" and g == "대형" else "일반증권사" if k == "KR" else g)
+                tags.append(f"{src_names[k]}: {label}")
+                sizes.append(g)
+        big = "대형" in sizes
+        small = (not big) and "중소형" in sizes
+        out.append({**r, "big": big, "small": small, "tip": " / ".join(tags),
+                    "KR": peers["KR"]["ratings"].get(c), "KIS": peers["KIS"]["ratings"].get(c), "NICE": peers["NICE"]["ratings"].get(c)})
+    out.sort(key=lambda x: -(x["asset"] or 0))
+    n_big, n_small = sum(1 for x in out if x["big"]), sum(1 for x in out if x["small"])
+    n_none = len(out) - n_big - n_small
+
+    def td(text, v="", cls=""):
+        return f'<td data-v="{v}"{f" class={chr(34)}{cls}{chr(34)}" if cls else ""}>{text}</td>'
+
+    def num(x, d=0):
+        return "" if x is None else f"{x:,.{d}f}"
+
+    body = []
+    for i, x in enumerate(out, 1):
+        mark = lambda on: "○" if on else ""
+        body.append(
+            "<tr>" + td(i, i)
+            + f'<td data-v="{x["name"]}" title="{x["tip"]}">{x["name"]}</td>'
+            + f'<td data-v="{1 if x["big"] else 0}" style="text-align:center;" title="{x["tip"]}">{mark(x["big"])}</td>'
+            + f'<td data-v="{1 if x["small"] else 0}" style="text-align:center;" title="{x["tip"]}">{mark(x["small"])}</td>'
+            + td(num(x["asset"]), "" if x["asset"] is None else x["asset"])
+            + td(num(x["equity"]), "" if x["equity"] is None else x["equity"])
+            + td("" if x["roa"] is None else f'{x["roa"]:.2f}%', "" if x["roa"] is None else x["roa"])
+            + "".join(f'<td data-v="{_grade_rank(x[k])}" style="text-align:center;">{x[k] or ""}</td>' for k in ("KR", "KIS", "NICE"))
+            + "</tr>"
+        )
+    heads = ["No", "금융회사명", "대형", "중소형", "총자산(억원)", "자기자본(억원)", "ROA", "한기평(KR)", "한신평", "NICE"]
+    text_cols = {1}
+    th = "".join(
+        f'<th class="sortable" data-text="{1 if i in text_cols else 0}"{" data-dir=" + chr(34) + "-1" + chr(34) if i == 4 else ""} '
+        f'onclick="tblSort(this)">{h}<span class="sort-arrow">{" ▼" if i == 4 else ""}</span></th>'
+        for i, h in enumerate(heads))
+    return (
+        f'<h4>증권사 전체 리스트 <span class="caption" style="font-weight:normal;">(재무는 {qlabel} 기준, 열 제목을 누르면 정렬)</span></h4>'
+        f'<p class="caption">현존 증권사 {len(out)}개사 중 대형 {n_big}개, 중소형 {n_small}개, 3사 모두 분류하지 않은 회사 {n_none}개(외국계 지점 등)예요. '
+        '회사명/○에 마우스를 올리면 3사가 각각 어떻게 분류했는지 보여요.</p>'
+        f'<div style="overflow-x:auto;"><table class="data-table kis-ltable" id="secListTable"><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+        '<p class="caption">분류 기준: ① 한기평(종합IB), 한신평(대형), NICE(대형IB) 중 한 곳이라도 대형으로 분류하면 대형, '
+        '② 대형이 아닌 회사 중 한 곳이라도 중소형(한기평 일반증권사, 한신평 중소형, NICE 중형사·소형사)으로 분류하면 중소형이에요. '
+        '자료: 3사 증권업 데이터(2026.2Q). 총자산·자기자본·ROA는 FISIS(업무보고서) 기준이고 ROA는 당기순이익(누계, 연환산) ÷ ((직전 결산말+해당 시점) 총자산 평균)이에요. '
+        '신용등급은 3사 자료의 2026.06 기준 표기 그대로이고(한기평 장기(전망)/단기, 한신평 장기/전망), 공시된 등급이 없으면 비워뒀어요. '
+        'NICE 자료(NDB)에는 신용등급이 없어서 NICE 열은 비어 있어요.</p>'
+    )
+
+
+def render_bodies(prefix: str, quarters: list[str], list_html: str = "") -> list[str]:
     """TAB_LABELS 순서의 탭 본문."""
     ctl = render_controls()
 
@@ -400,6 +476,7 @@ def render_bodies(prefix: str, quarters: list[str]) -> list[str]:
         "파생결합증권": ctl + _tables("파생결합증권") + sec("dr"),
         "재무상태표": ctl + _tables("재무상태표") + sec("bs"),
         "손익계산서": ctl + _tables("손익계산서") + sec("is"),
+        "전체 리스트": list_html,
     }
     return [bodies[t] for t in TAB_LABELS]
 

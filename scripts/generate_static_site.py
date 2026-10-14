@@ -936,7 +936,8 @@ def render_securities_page(sector_key: str, sector: str) -> str:
     payload = sec_data.build_sec_payload()
     if payload is None:
         return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
-    bodies = sec_charts.render_bodies(sector_key, payload["quarters"])
+    list_rows, list_q = sec_data.build_list_rows()
+    bodies = sec_charts.render_bodies(sector_key, payload["quarters"], sec_charts.render_list_tab(list_rows, list_q))
     return tabs_html(sec_charts.TAB_LABELS, bodies) + sec_charts.render_data_script(payload)
 
 

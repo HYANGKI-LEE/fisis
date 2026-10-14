@@ -50,7 +50,7 @@ def _calendar(first: str, last: str) -> list[str]:
     return cal
 
 
-def load_frame():
+def load_frame(all_entities: bool = False):
     path = latest_final_df_path(SECTOR)
     if path is None:
         return None
@@ -59,15 +59,17 @@ def load_frame():
     codes = {code for _, code, _, _ in CO_LIST}
     df[qcols] = df[qcols].apply(pd.to_numeric, errors="coerce")
     all_df = df[(df["통계표코드"].astype(str) == "SF307") & (df["항목"] == "누계")]   # 업권 전체(외국계 지점 포함) 점유율 분모용
-    df = df[df["금융회사코드"].isin(codes)].copy()
+    if not all_entities:
+        df = df[df["금융회사코드"].isin(codes)].copy()
     return df, qcols, all_df
 
 
 class SecData:
     """FISIS 행렬 접근 + 지표 계산. self.metrics = {키: {kind: sum|ratio, ...}}"""
 
-    def __init__(self):
-        got = load_frame()
+    def __init__(self, all_entities: bool = False):
+        """all_entities=True: 비교 대상 27개사가 아니라 FISIS 증권사 전체(외국계 지점 포함)를 회사로 둔다(전체 리스트 탭용)."""
+        got = load_frame(all_entities)
         if got is None:
             raise RuntimeError("증권사 final_df가 없어요")
         self.df, qcols, self.df_all = got
@@ -77,6 +79,17 @@ class SecData:
         self.code_of = {c: n for n, c, _, _ in CO_LIST}
         self.group_of = {n: g for n, _, g, _ in CO_LIST}
         self.fye = {n: f for n, _, _, f in CO_LIST}
+        if all_entities:
+            for code_, nm in self.df.drop_duplicates("금융회사코드", keep="last").set_index("금융회사코드")["금융회사명"].items():
+                if code_ in self.code_of:
+                    continue
+                short = re.sub(r"\(주\)|주식회사|\s+", " ", str(nm)).strip()
+                if short in self.group_of:
+                    short = f"{short}({code_})"
+                self.names.append(short)
+                self.code_of[code_] = short
+                self.group_of[short] = "비교제외"
+                self.fye[short] = 12
         self.qcols = qcols
         self._cache = {}
         self.metrics: dict[str, dict] = {}
@@ -417,6 +430,29 @@ class SecData:
             "series": {k: v for k, v in series.items() if v},
             "excelQuarters": [format_ym(int(q)) for q in self.excel_periods],
         }
+
+
+def build_list_rows() -> list[dict]:
+    """FISIS 증권사 전체(최근 분기 자산이 있는 현존 회사)의 총자산·자기자본·ROA (전체 리스트 탭용)."""
+    sd = SecData(all_entities=True)
+    last = sd.cal[-1]
+
+    def val(key):
+        m = sd.metrics[key]
+        if m["kind"] == "sum":
+            return m["df"][last]
+        return m["num"][last] / m["den"][last].where(m["den"][last] != 0) * m["mult"]
+
+    asset, eq, roa = val("bs_asset"), val("bs_equity"), val("pf_roa")
+    code_by = {n: c for c, n in sd.code_of.items()}
+    rows = []
+    for n in sd.names:
+        a = asset.get(n)
+        if a is None or not np.isfinite(a) or a <= 0:
+            continue
+        pick = lambda x: None if x is None or not np.isfinite(x) else float(x)
+        rows.append({"name": n, "code": int(code_by[n]), "asset": pick(a), "equity": pick(eq.get(n)), "roa": pick(roa.get(n))})
+    return rows, format_ym(int(last))
 
 
 def build_sec_payload() -> dict | None:

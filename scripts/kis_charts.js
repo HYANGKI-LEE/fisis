@@ -641,6 +641,28 @@ function kisRenderCtable(box, idx) {
   if (cap) cap.textContent = KIS.d.quarters[qi];
 }
 
+// 전체 리스트 표: 열 제목을 누르면 정렬 (값은 각 셀의 data-v, 비어 있으면 항상 맨 아래)
+function tblSort(th) {
+  var table = th.closest('table'), tbody = table.tBodies[0];
+  var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+  var isText = th.dataset.text === '1';
+  var dir = th.dataset.dir ? -parseInt(th.dataset.dir, 10) : (isText ? 1 : -1);
+  table.querySelectorAll('th').forEach(function(h){ h.dataset.dir = ''; var a = h.querySelector('.sort-arrow'); if (a) a.textContent = ''; });
+  th.dataset.dir = String(dir);
+  th.querySelector('.sort-arrow').textContent = dir === 1 ? ' ▲' : ' ▼';
+  var rows = Array.prototype.slice.call(tbody.rows);
+  var val = function(r){ var v = r.cells[idx].dataset.v; return v === undefined ? '' : v; };
+  rows.sort(function(a, b){
+    var av = val(a), bv = val(b);
+    if (av === '' && bv === '') return 0;
+    if (av === '') return 1;
+    if (bv === '') return -1;
+    var c = isText ? av.localeCompare(bv, 'ko') : (parseFloat(av) - parseFloat(bv));
+    return c * dir;
+  });
+  rows.forEach(function(r, i){ tbody.appendChild(r); if (idx !== 0) r.cells[0].textContent = i + 1; });
+}
+
 /* ===================== 신용평가 탭: 한국기업평가 상호저축은행업 신용평가방법론(2025.03.24) 적용 ===================== */
 var RATING = null;
 // dir: hi = 클수록 좋음(>=), lo = 작을수록 좋음(<=). th = AA, A, BBB, BB 경계. star = 상대적으로 중요한 지표(◎)
