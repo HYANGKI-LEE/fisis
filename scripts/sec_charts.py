@@ -361,7 +361,7 @@ AH_ITEMS = [('A', '콜론'), ('B', '신용공여금'), ('C', '환매조건부매
 
 
 def _ah_bar(prefix: str) -> str:
-    """자산 종류별 고정이하/요주의이하 비율 가로 막대 (회사 선택에 따라 JS가 그림)."""
+    """자산 종류별 고정이하/요주의이하 비율 세로 막대 (회사 선택에 따라 JS가 그림)."""
     spec = json.dumps([{"c": c, "n": n} for c, n in AH_ITEMS], ensure_ascii=False)
     return (
         '<h4>자산 종류별 고정이하·요주의이하 비율 (단위: %)</h4>'

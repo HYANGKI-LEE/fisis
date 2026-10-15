@@ -561,7 +561,7 @@ function kisRenderStack(el, ser, idx) {
   }, {displaylogo: false, responsive: true});
 }
 
-// 자산 종류별 고정이하·요주의이하 비율 가로 막대: 증권사 전체 선택 시 항목당 2개, 그 외에는 선택 항목 vs 증권사 전체 4개
+// 자산 종류별 고정이하·요주의이하 비율 세로 막대: 증권사 전체 선택 시 항목당 2개, 그 외에는 선택 항목 vs 증권사 전체 4개
 function kisRenderHbar(el, idx) {
   var items = JSON.parse(el.dataset.hbar), S = KIS.d.series, qi = idx[idx.length - 1];
   var allS = S[KIS.d.allLabel] || {}, sel = S[KIS.company] || {}, isAll = KIS.company === KIS.d.allLabel;
@@ -579,8 +579,8 @@ function kisRenderHbar(el, idx) {
   var fmtText = function(arr){ return arr.map(function(v){ return v === null ? '' : v.toFixed(2) + '%'; }); };
   var mk = function(name, src, kind, color, dash) {
     var y = rows.map(function(it){ return ratio(src, it.c, kind); });
-    return {type: 'bar', orientation: 'h', name: name, x: y, y: names, marker: {color: color}, text: fmtText(y), textposition: 'outside',
-            textfont: {size: 9}, cliponaxis: false, hovertemplate: '%{y}<br>' + name + ' %{x:.2f}%<extra></extra>'};
+    return {type: 'bar', name: name, x: names, y: y, marker: {color: color}, text: fmtText(y), textposition: 'outside',
+            textfont: {size: 9}, cliponaxis: false, hovertemplate: '%{x}<br>' + name + ' %{y:.2f}%<extra></extra>'};
   };
   var co = kisShort(KIS.company), allName = KIS.d.allLabel;
   var traces = isAll
@@ -588,9 +588,9 @@ function kisRenderHbar(el, idx) {
     : [mk(co + ' 고정이하', sel, 'sub', '#C0392B'), mk(allName + ' 고정이하', allS, 'sub', '#E6A09A'),
        mk(co + ' 요주의이하', sel, 'wat', '#E67E22'), mk(allName + ' 요주의이하', allS, 'wat', '#F5CBA7')];
   plotReact(el.id, traces, {
-    barmode: 'group', height: rows.length * (isAll ? 44 : 78) + 120, margin: {t: 100, b: 40, l: 130, r: 60},
+    barmode: 'group', height: 520, margin: {t: 100, b: 110, l: 55, r: 20},
     title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
-    yaxis: {autorange: 'reversed', tickfont: {size: 11}}, xaxis: {ticksuffix: '%', rangemode: 'tozero'},
+    xaxis: {type: 'category', tickangle: -35, tickfont: {size: 11}}, yaxis: {ticksuffix: '%', rangemode: 'tozero'},
     legend: {orientation: 'h', y: 1.0, yanchor: 'bottom', x: 0.5, xanchor: 'center'}
   }, {displaylogo: false, responsive: true});
 }
