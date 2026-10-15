@@ -192,11 +192,6 @@ SECTIONS = {
         ("aq_c_watchr", "요주의이하비율", "%", "cmp3", {"k": "aq_watch_r", "gray": True}),
         ("aq_c_subr", "고정이하비율", "%", "cmp3", {"k": "aq_sub_r", "gray": True}),
         ("aq_c_cov", "대손충당금/고정이하", "%", "cmp3", {"k": "aq_cov", "gray": True}),
-        ("e_aq1", "", "", "empty", None),
-        ("aq_total", "건전성분류대상자산", "억원", "bar", None),
-        ("aq_watch", "요주의이하", "억원", "bar", None),
-        ("aq_sub", "고정이하", "억원", "bar", None),
-        ("aq_allow", "대손충당금", "억원", "bar", None),
     ],
     "cp": [
         ("cp_c_ncr", "순자본비율", "%", "cmp3", {"k": "cp_ncr", "gray": True}),
