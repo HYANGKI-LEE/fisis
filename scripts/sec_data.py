@@ -360,6 +360,9 @@ class SecData:
         size_grp = {lab: [n for n in names if next((c for c, nm in self.code_of.items() if nm == n), None) in size_codes[lab]]
                     for lab in SIZE_LABELS}
         size_grp = {lab: m for lab, m in size_grp.items() if m}
+        # 유효등급 보유 = 전체 리스트 탭에서 대형 또는 중소형에 ○인 회사(합집합)
+        union = [n for n in names if any(n in m for m in size_grp.values())]
+        size_grp = {"유효등급 보유": union, **size_grp}
         grp.update(size_grp)
         agg_names = list(names)   # 업권 전체 = FISIS 증권사 전체(외국계 지점 포함)
         live = self.metrics["bs_asset"]["df"][self.cal[-1]].notna()   # 회사 선택 목록은 최근 분기 자산이 있는 현존 회사만
