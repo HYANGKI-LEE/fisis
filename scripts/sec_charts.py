@@ -212,6 +212,22 @@ SECTIONS = {
         ("dr_sold", "매도파생결합증권(부채)", "억원", "bar", None),
     ],
     "bs": [(k, n, u, kind, ex) for k, n, u, kind, ex in _BS_CHARTS],
+    # 재무상태표 맨 위: 총자산·총부채 구성 추이, 단기 시장성 조달 추이 (단위: 조원)
+    "bs_top": [
+        ("bt_asset", "증권사 총자산 추이", "조원", "stackj", {"bars": [
+            {"k": "bs_cashdep", "n": "현금및예치금", "c": "#2B2D6E"}, {"k": "bs_fvpl", "n": "FVPL", "c": "#92C1D6"},
+            {"k": "bs_fvoci", "n": "FVOCI", "c": "#FFE699"}, {"k": "bs_loan", "n": "대출채권", "c": "#6B6EAF"},
+            {"k": "bs_oth5", "n": "기타자산", "c": "#D9C5B8"}]}),
+        ("bt_liab", "증권사 총부채 추이", "조원", "stackj", {"bars": [
+            {"k": "bs_dep_l", "n": "예수부채", "c": "#2B2D6E"}, {"k": "bs_cb_rp", "n": "RP매도", "c": "#92C1D6"},
+            {"k": "bs_cb_dls", "n": "매도파생결합증권", "c": "#FFE699"}, {"k": "bs_tl_borrow", "n": "차입금", "c": "#6B6EAF"},
+            {"k": "bs_tl_bond", "n": "사채", "c": "#D9C5B8"}, {"k": "bs_cb_note", "n": "발행어음", "c": "#6C9DB0"},
+            {"k": "bs_cb_sec", "n": "매도증권", "c": "#E8B4B0"}]}),
+        ("bt_stm", "단기 시장성 조달 추이", "조원 / %", "stackj", {"bars": [
+            {"k": "bs_cb_rp", "n": "RP매도", "c": "#2B2D6E"}, {"k": "stm_cpstb", "n": "CP/STB", "c": "#92C1D6"},
+            {"k": "bs_cb_note13", "n": "발행어음", "c": "#FFE699"}, {"k": "bs_b_call", "n": "콜머니", "c": "#6B6EAF"}],
+            "line": {"k": "stm_share", "n": "단기·시장성차입 비중(우)", "c": "#E8312F"}}),
+    ],
     "is": [(k, n.strip("()"), "억원", "bar", None) for n, k, i, b in IS_ROWS],
     "key": [
         ("key_roa", "총자산이익률(ROA)", "%", "cmp3", {"k": "pf_roa"}),
@@ -238,6 +254,9 @@ SECTIONS = {
 SERIES_KEY = {"pf_c_rev": "is_rev", "pf_c_cost": "is_cost", "pf_c_net": "is_net", "pf_c_share": "pf_share_q", "key_share": "pf_share", "pr_ni": "is_ni", "pr_net": "is_net", "lq_gap": "lq_gap"}
 
 CHART_NOTES = {
+    "bt_asset": "선택 대상의 자산 구성이에요. FVPL = 당기손익-공정가치측정증권, FVOCI = 기타포괄손익-공정가치측정증권(2017년 이전은 당기손익인식증권·매도가능증권). 기타자산 = 총자산 - 위 4개 항목.",
+    "bt_liab": "총부채 = 예수부채 + 차입부채예요(기타부채·파생상품부채 제외). 차입금에는 콜머니, 사채에는 후순위사채가 들어 있고, 발행어음은 종합금융투자사업자·종금계정 발행분이에요.",
+    "bt_stm": "단기 시장성 조달 = RP매도 + CP/STB + 발행어음(종합금융투자사업자 발행분) + 콜머니, 비중 = 단기 시장성 조달 ÷ 차입부채. CP/STB는 FISIS에 따로 없어서 전자단기사채(사채 중) + 차입금 중 기타(CP 포함)로 근사했어요.",
     "pf_c_rev": "차트는 모두 분기 개별 금액이에요(표는 연초부터의 누계).",
     "pf_c_net": "영업순수익 = 영업수익 - 영업비용 (대출채권 관련 손익·기타대손충당금·충당부채 전입액 제외).",
     "pf_c_netm": "영업순수익률 = 영업순수익 ÷ 영업수익 (당분기). 4분기 누적은 최근 4개 분기 합계끼리 나눈 값이에요.",
@@ -308,7 +327,7 @@ def _cell(prefix, key, name, unit, kind, extra):
     if kind == "empty":
         return '<div class="cell"></div>'
     attrs = ""
-    if kind in ("dual", "cmp3", "cmp3m"):
+    if kind in ("dual", "cmp3", "cmp3m", "stackj"):
         attrs = f" data-{kind}='{json.dumps(extra, ensure_ascii=False)}'"
     elif kind in ("multi", "stack"):
         spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
@@ -473,7 +492,8 @@ def render_bodies(prefix: str, quarters: list[str], list_html: str = "") -> list
         "자본적정성": ctl + _tables("자본적정성") + sec("cp"),
         "유동성": ctl + _tables("유동성") + sec("lq"),
         "파생결합증권": ctl + _tables("파생결합증권") + sec("dr"),
-        "재무상태표": ctl + _tables("재무상태표") + sec("bs"),
+        "재무상태표": ctl + '<h4>자산·부채 구성 추이 (단위: 조원, 막대 위 숫자는 연말·최신 분기 합계)</h4>' + _grid(prefix, SECTIONS["bs_top"])
+                     + _tables("재무상태표") + sec("bs"),
         "손익계산서": ctl + _tables("손익계산서") + sec("is"),
         "전체 리스트": list_html,
     }

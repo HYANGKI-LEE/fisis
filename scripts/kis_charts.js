@@ -130,6 +130,7 @@ function kisRenderVisible() {
     if (el.offsetParent === null) return;                       // 숨겨진 탭
     if (el.dataset.v === String(KIS.version)) return;           // 이미 최신
     el.dataset.v = String(KIS.version);
+    if (el.dataset.stackj) { kisRenderStackJ(el, ser, idx); return; }
     if (el.dataset.hbar) { kisRenderHbar(el, idx); return; }
     if (el.dataset.cbar) { kisRenderCbar(el, idx); return; }
     if (el.dataset.stack) { kisRenderStack(el, ser, idx); return; }
@@ -559,6 +560,46 @@ function kisRenderStack(el, ser, idx) {
     xaxis: kisXAxis(x.length), yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
     legend: {}
   }, {displaylogo: false, responsive: true});
+}
+
+// 구성 추이(조원): 선택 대상의 항목을 쌓은 막대 + 막대 위 합계(연말·최신 분기) + 선택적 비중 선(우축)
+function kisRenderStackJ(el, ser, idx) {
+  var cfg = JSON.parse(el.dataset.stackj);
+  var bars = cfg.bars.filter(function(b){ return ser[b.k]; });
+  if (!bars.length) { emptyChartMsg(el.id, '데이터가 없어요.'); return; }
+  var firstOk = idx.length;
+  bars.forEach(function(b){
+    var j = 0;
+    while (j < idx.length && (ser[b.k][idx[j]] === null || ser[b.k][idx[j]] === undefined)) j++;
+    if (j < firstOk) firstOk = j;
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var traces = bars.map(function(b){
+    return {x: x, y: idxC.map(function(i){ var v = ser[b.k][i]; return (v === null || v === undefined) ? null : v / 1e4; }), type: 'bar',
+            name: b.n, marker: {color: b.c}, hovertemplate: '%{x}<br>' + b.n + ' %{y:,.1f}조원<extra></extra>'};
+  });
+  var tot = idxC.map(function(i){
+    var t = 0, any = false;
+    bars.forEach(function(b){ var v = ser[b.k][i]; if (v !== null && v !== undefined) { t += v; any = true; } });
+    return any ? t / 1e4 : null;
+  });
+  var lab = tot.map(function(t, n){
+    var q = x[n];
+    return (t !== null && (q.slice(-2) === 'Q4' || n === x.length - 1)) ? Math.round(t).toLocaleString('ko-KR') : '';
+  });
+  traces.push({x: x, y: tot, type: 'scatter', mode: 'text', text: lab, textposition: 'top center', textfont: {size: 10},
+               showlegend: false, hoverinfo: 'skip', cliponaxis: false});
+  var layout = {barmode: 'relative', height: 360, margin: {t: 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+                yaxis: {tickformat: ',', rangemode: 'tozero'}, legend: {}};
+  if (cfg.line && ser[cfg.line.k]) {
+    traces.push({x: x, y: idxC.map(function(i){ return ser[cfg.line.k][i]; }), type: 'scatter', mode: 'lines', yaxis: 'y2', name: cfg.line.n,
+                 connectgaps: true, line: {color: cfg.line.c, width: 2.6}, hovertemplate: '%{x}<br>' + cfg.line.n + ' %{y:.1f}%<extra></extra>'});
+    layout.yaxis2 = {overlaying: 'y', side: 'right', showgrid: false, ticksuffix: '%', rangemode: 'tozero'};
+    layout.margin.r = 45;
+  }
+  plotReact(el.id, traces, layout, {displaylogo: false, responsive: true});
 }
 
 // 자산 종류별 고정이하·요주의이하 비율 세로 막대: 증권사 전체 선택 시 항목당 2개, 그 외에는 선택 항목 vs 증권사 전체 4개
