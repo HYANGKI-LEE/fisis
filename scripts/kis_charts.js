@@ -575,12 +575,20 @@ function kisRenderHbar(el, idx) {
   var base = isAll ? allS : sel;
   var rows = items.filter(function(it){ return ratio(base, it.c, 'sub') !== null; });
   if (!rows.length) { emptyChartMsg(el.id, '이 분기엔 이 회사의 자산건전성 분류 데이터가 없어요.'); return; }
-  var names = rows.map(function(it){ return it.n; });
+  var bal = function(src, c) {
+    var t = src['ah_' + c + '_tot'];
+    return (t && t[qi] !== null && t[qi] !== undefined) ? t[qi] : null;
+  };
+  var fmtBal = function(v){ return v === null ? '-' : v.toLocaleString('ko-KR', {maximumFractionDigits: 0}); };
+  // 항목 이름 뒤에 선택 대상(증권사 전체 또는 선택 회사/그룹)의 분류대상 잔액(억원)을 붙임
+  var names = rows.map(function(it){ return it.n + '(잔액 ' + fmtBal(bal(base, it.c)) + '억원)'; });
   var fmtText = function(arr){ return arr.map(function(v){ return v === null ? '' : v.toFixed(2) + '%'; }); };
   var mk = function(name, src, kind, color, dash) {
     var y = rows.map(function(it){ return ratio(src, it.c, kind); });
     return {type: 'bar', name: name, x: names, y: y, marker: {color: color}, text: fmtText(y), textposition: 'outside',
-            textfont: {size: 9}, cliponaxis: false, hovertemplate: '%{x}<br>' + name + ' %{y:.2f}%<extra></extra>'};
+            customdata: rows.map(function(it){ return fmtBal(bal(src, it.c)); }),
+            textfont: {size: 9}, cliponaxis: false,
+            hovertemplate: '%{x}<br>' + name + ' %{y:.2f}%<br>해당 자산 잔액 %{customdata}억원<extra></extra>'};
   };
   var co = kisShort(KIS.company), allName = KIS.d.allLabel;
   var traces = isAll
