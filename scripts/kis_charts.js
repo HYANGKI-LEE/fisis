@@ -130,6 +130,7 @@ function kisRenderVisible() {
     if (el.offsetParent === null) return;                       // 숨겨진 탭
     if (el.dataset.v === String(KIS.version)) return;           // 이미 최신
     el.dataset.v = String(KIS.version);
+    if (el.dataset.hbar) { kisRenderHbar(el, idx); return; }
     if (el.dataset.cbar) { kisRenderCbar(el, idx); return; }
     if (el.dataset.stack) { kisRenderStack(el, ser, idx); return; }
     if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
@@ -557,6 +558,40 @@ function kisRenderStack(el, ser, idx) {
     barmode: 'relative', height: 352, margin: {t: 50, b: 60, l: 60, r: 10}, title: kisTitle(el),
     xaxis: kisXAxis(x.length), yaxis: {tickformat: unit === '억원' ? ',' : undefined, ticksuffix: unit === '%' ? '%' : ''},
     legend: {}
+  }, {displaylogo: false, responsive: true});
+}
+
+// 자산 종류별 고정이하·요주의이하 비율 가로 막대: 증권사 전체 선택 시 항목당 2개, 그 외에는 선택 항목 vs 증권사 전체 4개
+function kisRenderHbar(el, idx) {
+  var items = JSON.parse(el.dataset.hbar), S = KIS.d.series, qi = idx[idx.length - 1];
+  var allS = S[KIS.d.allLabel] || {}, sel = S[KIS.company] || {}, isAll = KIS.company === KIS.d.allLabel;
+  var ratio = function(src, c, kind) {
+    var t = src['ah_' + c + '_tot'], v = src['ah_' + c + '_' + kind];
+    if (!t || !v) return null;
+    var tt = t[qi], vv = v[qi];
+    if (tt === null || tt === undefined || !(tt > 0) || vv === null || vv === undefined) return null;
+    return vv / tt * 100;
+  };
+  var base = isAll ? allS : sel;
+  var rows = items.filter(function(it){ return ratio(base, it.c, 'sub') !== null; });
+  if (!rows.length) { emptyChartMsg(el.id, '이 분기엔 이 회사의 자산건전성 분류 데이터가 없어요.'); return; }
+  var names = rows.map(function(it){ return it.n; });
+  var fmtText = function(arr){ return arr.map(function(v){ return v === null ? '' : v.toFixed(2) + '%'; }); };
+  var mk = function(name, src, kind, color, dash) {
+    var y = rows.map(function(it){ return ratio(src, it.c, kind); });
+    return {type: 'bar', orientation: 'h', name: name, x: y, y: names, marker: {color: color}, text: fmtText(y), textposition: 'outside',
+            textfont: {size: 9}, cliponaxis: false, hovertemplate: '%{y}<br>' + name + ' %{x:.2f}%<extra></extra>'};
+  };
+  var co = kisShort(KIS.company), allName = KIS.d.allLabel;
+  var traces = isAll
+    ? [mk('고정이하', allS, 'sub', '#C0392B'), mk('요주의이하', allS, 'wat', '#E67E22')]
+    : [mk(co + ' 고정이하', sel, 'sub', '#C0392B'), mk(allName + ' 고정이하', allS, 'sub', '#E6A09A'),
+       mk(co + ' 요주의이하', sel, 'wat', '#E67E22'), mk(allName + ' 요주의이하', allS, 'wat', '#F5CBA7')];
+  plotReact(el.id, traces, {
+    barmode: 'group', height: rows.length * (isAll ? 44 : 78) + 120, margin: {t: 100, b: 40, l: 130, r: 60},
+    title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
+    yaxis: {autorange: 'reversed', tickfont: {size: 11}}, xaxis: {ticksuffix: '%', rangemode: 'tozero'},
+    legend: {orientation: 'h', y: 1.0, yanchor: 'bottom', x: 0.5, xanchor: 'center'}
   }, {displaylogo: false, responsive: true});
 }
 

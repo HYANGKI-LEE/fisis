@@ -1231,7 +1231,8 @@ function plotReact(id, data, layout, cfg) {
   layout.yaxis = Object.assign({showgrid: true, gridcolor: '#f0f1f3', tickfont: {size: 10, color: '#444'}}, layout.yaxis || {});
   // 범례: 항상 차트 안(왼쪽 위)에, 반투명 배경
   var isPie = data.length && data.every(function(t){ return t.type === 'pie'; });
-  if (layout.showlegend !== false && !isPie && (layout.legend || data.length > 1)) {
+  var fixedLegend = layout.legend && layout.legend.y >= 1;     // 차트 위쪽 바깥에 직접 둔 범례는 그대로 둠
+  if (layout.showlegend !== false && !isPie && !fixedLegend && (layout.legend || data.length > 1)) {
     var was = layout.legend || {};
     // 선이 가장 적게 지나가는 모서리에 범례를 둠 (기본: 왼쪽 위)
     var pos = {x: 0.01, y: 0.99, xanchor: 'left', yanchor: 'top'};

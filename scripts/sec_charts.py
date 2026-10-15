@@ -357,6 +357,24 @@ def _ctable(title):
     )
 
 
+AH_ITEMS = [('A', '콜론'), ('B', '신용공여금'), ('C', '환매조건부매수'), ('D', '대여금'), ('E', '대출금'), ('F', '매입대출채권'), ('G', '대지급금'), ('H', '부도채권'), ('I', '부도어음'), ('J', '사모사채'), ('K', '신탁계정대'), ('L', '기타 대출채권'), ('M', '가지급금'), ('N', '미수금'), ('O', '미수수익'), ('P', '채무보증'), ('Q', '대출금(종금)'), ('R', '할인어음(종금)'), ('S', 'CMA운용자산(종금)'), ('T', '리스자산(종금)'), ('U', '기타'), ('V', '계')]
+
+
+def _ah_bar(prefix: str) -> str:
+    """자산 종류별 고정이하/요주의이하 비율 가로 막대 (회사 선택에 따라 JS가 그림)."""
+    spec = json.dumps([{"c": c, "n": n} for c, n in AH_ITEMS], ensure_ascii=False)
+    return (
+        '<h4>자산 종류별 고정이하·요주의이하 비율 (단위: %)</h4>'
+        '<div class="grid" style="grid-template-columns:1fr;"><div class="cell">'
+        f'<div id="kis-{prefix}-ah_bar" class="plotly-chart kis-chart" data-key="ah_bar" data-type="hbar" data-name="자산 종류별 고정이하·요주의이하 비율" '
+        f"data-unit=\"%\" data-hbar='{spec}'></div>"
+        '<p class="caption kis-note">비율 = 해당 자산 종류의 고정이하(또는 요주의이하) ÷ 그 자산의 건전성 분류대상 금액이에요. 요주의이하는 요주의+고정이하(고정·회수의문·추정손실)예요. '
+        '증권사 전체를 고르면 항목마다 막대 2개, 회사나 그룹(유효등급 보유·대형·중소형)을 고르면 선택 대상과 증권사 전체를 비교하는 막대 4개가 나와요. '
+        '선택 기간의 마지막 분기 기준이고, 해당 자산이 없는 항목은 숨겨요(FISIS 자산건전성 분류, 2011.Q2~).</p>'
+        '</div></div>'
+    )
+
+
 def _tables(tab):
     out = []
     t = TAB_TABLES.get(tab)
@@ -454,7 +472,7 @@ def render_bodies(prefix: str, quarters: list[str], list_html: str = "") -> list
         "주요 지표": ctl + _tables("주요 지표") + _cbar(prefix, "cb_key", "회사별 지표 비교", CBAR_KEY, quarters) + sec("key"),
         "최근 실적": (ctl + _cbar(prefix, "cb_perf", "회사별 실적 비교", CBAR_PERF, quarters) + sec("perf_trend") + _ctable("회사별 최신 실적")),
         "수익성": ctl + _tables("수익성") + sec("pf"),
-        "자산건전성": ctl + _tables("자산건전성") + sec("aq"),
+        "자산건전성": ctl + _tables("자산건전성") + _ah_bar(prefix) + sec("aq"),
         "자본적정성": ctl + _tables("자본적정성") + sec("cp"),
         "유동성": ctl + _tables("유동성") + sec("lq"),
         "파생결합증권": ctl + _tables("파생결합증권") + sec("dr"),

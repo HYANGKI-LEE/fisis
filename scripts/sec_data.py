@@ -39,6 +39,9 @@ CO_LIST = [
 GROUPS = ["종합IB", "일반증권사"]
 SIZE_LABELS = ["대형", "중소형"]
 PEERS_JSON = REPO_DIR / "data" / "securities_peers.json"
+# 자산건전성 분류 대상 자산 종류(SF311 코드) - 자산 종류별 고정이하/요주의이하 비율 차트용
+AH_CODES = "ABCDEFGHIJKLMNOPQRSTUV"
+
 # 대형/중소형 분류(3사 통합)에만 있고 위 목록에 없는 회사: 회사 선택은 되지만 업권 전체·Peer 합산에는 뺀다
 EXTRA_CO = [("메리츠증권", 10099), ("부국증권", 10102), ("유화증권", 10112), ("리딩투자증권", 10132),
             ("노무라금융투자", 12390), ("우리투자증권", 13515)]
@@ -328,6 +331,12 @@ class SecData:
         watch = watch.where(total_ast.notna())
         allow = f0(A("D16")) + f0(A("H17")) + f0(A("B06"))
         allow = allow.where(asset.notna())
+        # 자산 종류별: 분류대상 합계 / 고정이하(고정+회수의문+추정손실) / 요주의이하(요주의+고정이하) 금액
+        for c in AH_CODES:
+            tot_c = g("SF311", c, "합계")
+            sub_c = (f0(g("SF311", c, "고정")) + f0(g("SF311", c, "회수의문")) + f0(g("SF311", c, "추정손실"))).where(tot_c.notna())
+            wat_c = (f0(g("SF311", c, "요주의")) + sub_c).where(tot_c.notna())
+            add_sum(f"ah_{c}_tot", tot_c); add_sum(f"ah_{c}_sub", sub_c); add_sum(f"ah_{c}_wat", wat_c)
         add_sum("aq_total", total_ast); add_sum("aq_watch", watch); add_sum("aq_sub", below); add_sum("aq_allow", allow)
         add_ratio("aq_watch_r", watch, total_ast)
         add_ratio("aq_sub_r", below, total_ast)
@@ -409,13 +418,14 @@ class SecData:
                 for g_, cs in grp.items():
                     aggs[g_] = (num.loc[cs].where(ok.loc[cs]).sum(min_count=1)
                                 / den.loc[cs].where(ok.loc[cs]).sum(min_count=1) * m["mult"])
+            ah = key.startswith("ah_")      # 자산 종류별 금액은 한 번도 값이 없는(전부 0) 회사 시리즈를 내장하지 않음(용량)
             for c in names:
                 vals = to_list(per.loc[c].to_numpy())
-                if any(v is not None for v in vals):
+                if any(v is not None and (v != 0 or not ah) for v in vals):
                     series[c][key] = vals
             for lab, agg in aggs.items():
                 vals = to_list(agg.to_numpy())
-                if any(v is not None for v in vals):
+                if any(v is not None and (v != 0 or not ah) for v in vals):
                     series[lab][key] = vals
 
         asset_latest = self.metrics["bs_asset"]["df"][self.cal[-1]].fillna(0)
