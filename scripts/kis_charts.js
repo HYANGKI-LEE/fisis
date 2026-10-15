@@ -584,9 +584,9 @@ function kisRenderHbar(el, idx) {
   };
   var co = kisShort(KIS.company), allName = KIS.d.allLabel;
   var traces = isAll
-    ? [mk('고정이하', allS, 'sub', '#C0392B'), mk('요주의이하', allS, 'wat', '#E67E22')]
+    ? [mk('고정이하', allS, 'sub', '#C0392B'), mk('요주의이하', allS, 'wat', '#2E75B6')]
     : [mk(co + ' 고정이하', sel, 'sub', '#C0392B'), mk(allName + ' 고정이하', allS, 'sub', '#E6A09A'),
-       mk(co + ' 요주의이하', sel, 'wat', '#E67E22'), mk(allName + ' 요주의이하', allS, 'wat', '#F5CBA7')];
+       mk(co + ' 요주의이하', sel, 'wat', '#2E75B6'), mk(allName + ' 요주의이하', allS, 'wat', '#9DC3E6')];
   plotReact(el.id, traces, {
     barmode: 'group', height: 520, margin: {t: 100, b: 110, l: 55, r: 20},
     title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
