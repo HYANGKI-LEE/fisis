@@ -76,7 +76,7 @@ def load_frame(all_entities: bool = False):
     qcols = [c for c in df.columns if re.fullmatch(r"\d{6}", str(c)) and int(c) >= START_YM]
     codes = {code for _, code, _, _ in CO_LIST}
     df[qcols] = df[qcols].apply(pd.to_numeric, errors="coerce")
-    all_df = df[(df["통계표코드"].astype(str) == "SF307") & (df["항목"] == "누계")]   # 업권 전체(외국계 지점 포함) 점유율 분모용
+    all_df = df[df["통계표코드"].astype(str) == "SF307"]   # 업권 전체(외국계 지점 포함) 점유율 분모용
     if not all_entities:
         df = df[df["금융회사코드"].isin(codes)].copy()
     return df, qcols, all_df
@@ -281,13 +281,23 @@ class SecData:
         add_ratio("pf_ptm", IS_y["pretax"], IS_y["rev"])
         add_ratio("pf_ntm", IS_y["ni"], IS_y["rev"])
         # 영업순수익 점유율 분모 = FISIS 증권사 전체(외국계 지점 포함) 영업순수익(누계) 합계 (엑셀 정의)
-        def _tot(code):
-            t = self.df_all[self.df_all["코드"] == code].groupby("금융회사코드")[self.qcols].first()
+        def _tot(code, item="누계"):
+            t = self.df_all[(self.df_all["코드"] == code) & (self.df_all["항목"] == item)].groupby("금융회사코드")[self.qcols].first()
             return t.sum(min_count=1).reindex(self.cal) / 1e8
         z0 = lambda x: x.fillna(0)
-        net_all = ((_tot("A") - z0(_tot("A5")) - z0(_tot("A78")) - z0(_tot("A79")))
-                   - (_tot("B") - z0(_tot("B7")) - z0(_tot("B5")) - z0(_tot("B805")) - z0(_tot("B806"))))
-        M["pf_share"] = {"kind": "share", "df": net_y, "total": net_all}
+
+        def _net_all(item):
+            return ((_tot("A", item) - z0(_tot("A5", item)) - z0(_tot("A78", item)) - z0(_tot("A79", item)))
+                    - (_tot("B", item) - z0(_tot("B7", item)) - z0(_tot("B5", item)) - z0(_tot("B805", item)) - z0(_tot("B806", item))))
+        M["pf_share"] = {"kind": "share", "df": net_y, "total": _net_all("누계")}
+        M["pf_share_q"] = {"kind": "share", "df": IS_q["net"], "total": _net_all("당분기")}
+        # 수익성 차트용 분기 개별 / 4분기 누적 이익률
+        l_rev, l_net, l_op, l_ni = (self._ltm(IS_q[k]) for k in ("rev", "net", "op", "ni"))
+        add_ratio("pf_netm_q", IS_q["net"], IS_q["rev"]); add_ratio("pf_netm_4", l_net, l_rev)
+        add_ratio("pf_opm_q", IS_q["op"], IS_q["rev"]); add_ratio("pf_opm_4", l_op, l_rev)
+        add_ratio("pf_ptm_q", IS_q["pretax"], IS_q["rev"])
+        add_ratio("pf_ntm_q", IS_q["ni"], IS_q["rev"]); add_ratio("pf_ntm_4", l_ni, l_rev)
+        add_ratio("pf_sga_q", IS_q["sga"], IS_q["net"])
         # 영업순수익 대비 비중 (참고)
         self.months, self.ann = months, ann
 
@@ -301,6 +311,8 @@ class SecData:
         add_ratio("dc_sga", -f0(IS_q["sga"]) * q_ann, avg_q)
         add_ratio("dc_prov", -f0(IS_q["prov"]) * q_ann, avg_q)
         add_ratio("dc_roa_q", IS_q["ni"] * q_ann, avg_q)
+        add_ratio("pf_roa_q", IS_q["ni"] * q_ann, avg_q)                                   # 분기 개별(연율화)
+        add_ratio("pf_roe_q", IS_q["ni"] * q_ann, (eq + eq.shift(1, axis=1)) / 2)
         asset4 = asset.shift(4, axis=1)
         add_ratio("bs_asset_yoy", asset - asset4, asset4)
         ni4 = self._ltm(IS_q["ni"])
@@ -408,13 +420,13 @@ class SecData:
 
         asset_latest = self.metrics["bs_asset"]["df"][self.cal[-1]].fillna(0)
         companies_sorted = sorted([n for n in names if live.get(n, False)], key=lambda c: -asset_latest.get(c, 0))
-        keep = set(companies_sorted) | {ALL_LABEL} | set(GROUPS) | set(size_grp)
+        keep = set(companies_sorted) | {ALL_LABEL} | set(size_grp)
         series = {k: v for k, v in series.items() if k in keep}
         size_grp = {lab: [n for n in m if n in keep] for lab, m in size_grp.items()}
         return {
             "quarters": [format_ym(int(q)) for q in self.cal],
             "allLabel": ALL_LABEL,
-            "groups": GROUPS,
+            "groups": list(size_grp),      # 비교선: 증권사 전체 + 유효등급 보유 / 대형 / 중소형
             "ratedLabel": "",
             "companies": [ALL_LABEL] + list(size_grp) + companies_sorted,
             "rated": [ALL_LABEL] + list(size_grp) + companies_sorted,

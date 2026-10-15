@@ -339,11 +339,12 @@ function kisRenderCmp3(el, ser, idx) {
   var gray = !!cfg.gray;   // 자산건전성처럼 비교선을 회색 계열로 그리는 차트
   var suffix = el.dataset.unit === '%' ? '%' : el.dataset.unit;   // '배' 같은 단위는 그대로 붙임
   var groups = KIS.d.groups || [KIS.d.ratedLabel];
-  var pal = gray ? [['#666666', 'dot'], ['#B0B0B0', 'dash'], ['#999999', 'dashdot']]
-                 : [['#555555', 'dot'], ['#ED7D31', 'dash'], ['#70AD47', 'dashdot']];
+  var pal = gray ? [['#666666', 'dot'], ['#B0B0B0', 'dash'], ['#999999', 'dashdot'], ['#CCCCCC', 'longdash']]
+                 : [['#555555', 'dot'], ['#ED7D31', 'dash'], ['#70AD47', 'dashdot'], ['#8E44AD', 'longdash']];
   if (!isAll) sources.push({name: kisShort(KIS.company), s: ser, color: '#2980B9', width: 2.8, dash: 'solid'});
   sources.push({name: KIS.d.groups ? KIS.d.allLabel : '업권 전체', s: all, color: pal[0][0], width: 2.2, dash: pal[0][1]});
   groups.forEach(function(gl, gi){
+    if (gl === KIS.company) return;     // 선택한 항목이 그룹이면 파란 실선으로 이미 그림
     sources.push({name: gl, s: S[gl] || {}, color: pal[gi + 1][0], width: 2.2, dash: pal[gi + 1][1]});
   });
   sources = sources.filter(function(src){ return src.s[k]; });
@@ -431,11 +432,12 @@ function kisRenderCmp3m(el, ser, idx) {
   var isAll = KIS.company === KIS.d.allLabel;
   var lines = [];
   var groups = KIS.d.groups || [KIS.d.ratedLabel];
-  var gdash = ['dash', 'dashdot'];
+  var gdash = ['dash', 'dashdot', 'longdash'];
   cfg.ks.forEach(function(m){
     if (!isAll && ser[m.k]) lines.push({name: m.n + ' · ' + kisShort(KIS.company), v: ser[m.k], color: m.c, width: 2.8, dash: 'solid'});
     if (all[m.k]) lines.push({name: m.n + (isAll ? '' : ' · 업권 전체'), v: all[m.k], color: m.c, width: 2.2, dash: isAll ? 'solid' : 'dot'});
     groups.forEach(function(gl, gi){
+      if (gl === KIS.company) return;
       var gs = S[gl] || {};
       if (gs[m.k]) lines.push({name: m.n + ' · ' + (KIS.d.groups ? gl : '유효등급 ' + (gl.match(/[0-9]+/) || [''])[0] + '개사'),
                                v: gs[m.k], color: m.c, width: 2.2, dash: gdash[gi]});
