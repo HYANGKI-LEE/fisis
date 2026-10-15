@@ -350,6 +350,8 @@ class SecData:
         req = g("SF408", "D").combine_first(g("SF308", "D"))
         add_sum("cp_ncap", ncap); add_sum("cp_risk", risk); add_sum("cp_req", req)
         add_ratio("cp_ncr", ncap - risk, req)
+        add_sum("cp_surplus", ncap - risk)                  # 잉여자본(= 영업용순자본 - 총위험액)
+        add_ratio("cp_ncapr", ncap, risk)                   # 영업용순자본비율(= 영업용순자본 ÷ 총위험액)
         lev_a, lev_e = g("SF331", "A"), g("SF331", "B")
         add_ratio("cp_lev", lev_a, lev_e, mult=1.0)
         add_sum("cp_lev_a", lev_a); add_sum("cp_lev_e", lev_e)
