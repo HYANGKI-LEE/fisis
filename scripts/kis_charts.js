@@ -280,7 +280,10 @@ function kisRenderScatter(el, idx) {
   var allLabel = KIS.d.allLabel, S = KIS.d.series;
   var base = KIS.d.baseGroup && KIS.d.members && KIS.d.members[KIS.d.baseGroup] ? KIS.d.baseGroup : null;   // 증권사: 유효등급 보유 회사만
   var names = base ? KIS.d.members[base] : KIS.d.rated.filter(function(c){ return c !== allLabel; });
-  var xU = cfg.xu || '%', xF = xU === '%' ? ' %{x:.1f}%' : ' %{x:,.0f}' + xU, aggLabel = base || '업권 전체';
+  var xU = cfg.xu || '%', xs = cfg.xscale || 1, aggLabel = base || '업권 전체';
+  var xF = xU === '%' ? ' %{x:.1f}%' : (xU === '조원' ? ' %{x:,.2f}' : ' %{x:,.0f}') + xU;
+  // 점 라벨: 증권사는 '증권/투자증권'을 떼서 짧게
+  var lab = function(n){ return base ? n.replace(/(투자)?증권$/, '').replace(/금융투자$/, '') : kisShort(n); };
   var qi = -1;
   for (var j = idx.length - 1; j >= 0 && qi < 0; j--) {
     var n = names.filter(function(c){
@@ -291,37 +294,62 @@ function kisRenderScatter(el, idx) {
   }
   if (qi < 0) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
   var pts = names.map(function(c){
-    var s = S[c] || {};
-    return {n: c, x: s[cfg.x] ? s[cfg.x][qi] : null, y: s[cfg.y] ? s[cfg.y][qi] : null};
+    var s2 = S[c] || {};
+    return {n: c, x: s2[cfg.x] ? s2[cfg.x][qi] : null, y: s2[cfg.y] ? s2[cfg.y][qi] : null};
   }).filter(function(p){ return p.x !== null && p.y !== null; });
+  pts.forEach(function(p){ p.x = p.x * xs; });
+  // 축 끊기: 맨 오른쪽 점이 그다음 점의 1.8배를 넘으면 그 점만 오른쪽 좁은 구간으로 분리(// 표시)
+  var brk = null;
+  if (cfg.xbreak && pts.length > 3) {
+    var xsr = pts.map(function(p){ return p.x; }).sort(function(a, b){ return a - b; }), m = xsr.length;
+    if (xsr[m - 1] > 1.8 * xsr[m - 2] && xsr[m - 1] - xsr[m - 2] > 5) brk = {thr: xsr[m - 2] * 1.3, max: xsr[m - 1], second: xsr[m - 2], min: xsr[0]};
+  }
+  var axisOf = function(p){ return brk && p.x > brk.thr ? 'x2' : 'x'; };
+  var hover = function(name){ return name + '<br>' + cfg.xl.replace(/ \(.*\)$/, '') + xF + ' / ' + cfg.yl.replace(' (%)', '') + ' %{y:.1f}%<extra></extra>'; };
+  var mkTraces = function(list, style, hoverName) {
+    var out = [];
+    ['x', 'x2'].forEach(function(ax){
+      var sub = list.filter(function(p){ return axisOf(p) === ax; });
+      if (!sub.length) return;
+      out.push({
+        x: sub.map(function(p){ return p.x; }), y: sub.map(function(p){ return p.y; }), xaxis: ax, mode: 'markers+text', type: 'scatter',
+        text: sub.map(function(p){ return lab(p.n) + (ax === 'x2' ? '<br>(' + p.x.toFixed(1) + (xU === '%' ? '%' : xU) + ')' : ''); }),
+        textposition: 'top center', cliponaxis: false, textfont: style.font, customdata: sub.map(function(p){ return lab(p.n); }), name: style.name,
+        marker: style.marker, hovertemplate: hoverName ? hover(hoverName) : '%{customdata}<br>' + cfg.xl.replace(/ \(.*\)$/, '') + xF + ' / ' + cfg.yl.replace(' (%)', '') + ' %{y:.1f}%<extra></extra>'
+      });
+    });
+    return out;
+  };
   var sel = pts.filter(function(p){ return p.n === KIS.company; });
   var others = pts.filter(function(p){ return p.n !== KIS.company; });
-  var traces = [{
-    x: others.map(function(p){ return p.x; }), y: others.map(function(p){ return p.y; }), mode: 'markers+text', type: 'scatter',
-    text: others.map(function(p){ return kisShort(p.n); }), textposition: 'top center', textfont: {size: 9, color: '#555'},
-    customdata: others.map(function(p){ return kisShort(p.n); }), name: (base ? base + ' ' : '신평사 유효등급 ') + pts.length + '개사',
-    marker: {color: '#2980B9', size: 9}, hovertemplate: '%{customdata}<br>' + cfg.xl.replace(' (%)','') + xF + ' / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'
-  }];
+  var traces = mkTraces(others, {name: (base ? base + ' ' : '신평사 유효등급 ') + pts.length + '개사', font: {size: 9, color: '#555'}, marker: {color: '#2980B9', size: 9}});
   if (sel.length) {
-    traces.push({x: [sel[0].x], y: [sel[0].y], mode: 'markers+text', type: 'scatter', text: [kisShort(sel[0].n)], textposition: 'top center',
-                 textfont: {size: 11, color: '#E8312F'}, name: '선택: ' + kisShort(sel[0].n),
-                 marker: {color: '#E8312F', size: 13, symbol: 'diamond'},
-                 hovertemplate: kisShort(sel[0].n) + '<br>' + cfg.xl.replace(' (%)','') + xF + ' / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'});
+    traces = traces.concat(mkTraces(sel, {name: '선택: ' + lab(sel[0].n), font: {size: 11, color: '#E8312F'}, marker: {color: '#E8312F', size: 13, symbol: 'diamond'}}));
   }
   var a = S[base || allLabel] || {};
   if (xU === '%' && a[cfg.x] && a[cfg.y] && a[cfg.x][qi] !== null) {
-    traces.push({x: [a[cfg.x][qi]], y: [a[cfg.y][qi]], mode: 'markers+text', type: 'scatter', name: aggLabel,
+    var ap = {n: aggLabel, x: a[cfg.x][qi] * xs, y: a[cfg.y][qi]};
+    traces.push({x: [ap.x], y: [ap.y], xaxis: axisOf(ap), mode: 'markers+text', type: 'scatter', name: aggLabel,
                  text: ['전체'], textposition: 'top center', textfont: {size: 11, color: '#111'},
-                 marker: {color: '#111', size: 11, symbol: 'x'},
-                 hovertemplate: aggLabel + '<br>' + cfg.xl.replace(' (%)','') + xF + ' / ' + cfg.yl.replace(' (%)','') + ' %{y:.1f}%<extra></extra>'});
+                 marker: {color: '#111', size: 11, symbol: 'x'}, hovertemplate: hover(aggLabel)});
   }
-  plotReact(el.id, traces, {
-    height: 420, margin: {t: 60, b: 55, l: 55, r: 10},
-    title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
-    xaxis: {title: cfg.xl, ticksuffix: xU === '%' ? '%' : '', tickformat: xU === '%' ? undefined : ',', type: cfg.xlog ? 'log' : 'linear', showgrid: true, gridcolor: '#eef0f3'},
-    yaxis: {title: cfg.yl, ticksuffix: '%'},
-    showlegend: false
-  }, {displaylogo: false, responsive: true});
+  var logTicks = (cfg.xlog && xU === '조원') ? {tickvals: [0.3, 0.5, 1, 2, 3, 5, 10, 15], ticktext: ['0.3', '0.5', '1', '2', '3', '5', '10', '15']} : {};
+  var xaxis = Object.assign({title: cfg.xl, ticksuffix: xU === '%' ? '%' : '', tickformat: (xU === '%' || xU === '조원') ? undefined : ',',
+                             type: cfg.xlog ? 'log' : 'linear', showgrid: true, gridcolor: '#eef0f3'}, logTicks);
+  var layout = {height: 420, margin: {t: 60, b: 55, l: 55, r: 10}, title: kisTitle(el, KIS.d.quarters[qi] + ' 기준'),
+                xaxis: xaxis, yaxis: {title: cfg.yl, ticksuffix: '%'}, showlegend: false};
+  if (brk) {
+    var pad = (brk.second - Math.min(0, brk.min)) * 0.08;
+    layout.xaxis.domain = [0, 0.86];
+    layout.xaxis.range = [Math.min(0, brk.min) - pad, brk.second + pad * 1.5];
+    layout.xaxis2 = {domain: [0.9, 1], anchor: 'y', range: [brk.max - (brk.max - brk.second) * 0.12, brk.max + (brk.max - brk.second) * 0.12],
+                     showgrid: false, tickvals: [brk.max], ticktext: [brk.max.toFixed(1) + (xU === '%' ? '%' : '')], tickfont: {size: 10}};
+    // 끊김 표시(//)
+    var sl = function(x0){ return {type: 'line', xref: 'paper', yref: 'paper', x0: x0 - 0.006, x1: x0 + 0.006, y0: -0.03, y1: 0.03, line: {color: '#333', width: 1.5}}; };
+    layout.shapes = [sl(0.875), sl(0.885)];
+    layout.annotations = [{xref: 'paper', yref: 'paper', x: 0.95, y: 1.02, text: '축 끊김', showarrow: false, font: {size: 10, color: '#888'}}];
+  }
+  plotReact(el.id, traces, layout, {displaylogo: false, responsive: true});
 }
 
 // 회사/기간 선택줄을 스크롤해도 맨 위(제목+탭바 아래)에 고정
