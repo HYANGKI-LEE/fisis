@@ -37,6 +37,25 @@ CO_LIST = [
     ("케이프투자증권", 11978, "일반증권사", 12), ("상상인증권", 10104, "비교제외", 12), ("카카오페이증권", 11982, "일반증권사", 12),
 ]
 GROUPS = ["종합IB", "일반증권사"]
+SIZE_LABELS = ["대형", "중소형"]
+PEERS_JSON = REPO_DIR / "data" / "securities_peers.json"
+# 대형/중소형 분류(3사 통합)에만 있고 위 목록에 없는 회사: 회사 선택은 되지만 업권 전체·Peer 합산에는 뺀다
+EXTRA_CO = [("메리츠증권", 10099), ("부국증권", 10102), ("유화증권", 10112), ("리딩투자증권", 10132),
+            ("노무라금융투자", 12390), ("우리투자증권", 13515)]
+CO_LIST += [(n, c, "비교제외", 12) for n, c in EXTRA_CO]
+
+
+def size_class_codes() -> dict[str, set[int]]:
+    """3사 분류 통합: 한 곳이라도 대형이면 대형, 아니고 한 곳이라도 중소형이면 중소형 (전체 리스트 탭과 같은 기준)."""
+    if not PEERS_JSON.exists():
+        return {lab: set() for lab in SIZE_LABELS}
+    peers = json.loads(PEERS_JSON.read_text(encoding="utf-8"))
+    votes: dict[int, set[str]] = {}
+    for src in peers.values():
+        for c, g in src["groups"].items():
+            votes.setdefault(int(c), set()).add(g)
+    return {"대형": {c for c, v in votes.items() if "대형" in v},
+            "중소형": {c for c, v in votes.items() if "대형" not in v and "중소형" in v}}
 
 
 def _calendar(first: str, last: str) -> list[str]:
@@ -331,8 +350,13 @@ class SecData:
     def payload(self) -> dict:
         names = self.names
         grp = {g_: [n for n in names if self.group_of[n] == g_] for g_ in GROUPS}
+        size_codes = size_class_codes()
+        size_grp = {lab: [n for n in names if next((c for c, nm in self.code_of.items() if nm == n), None) in size_codes[lab]]
+                    for lab in SIZE_LABELS}
+        size_grp = {lab: m for lab, m in size_grp.items() if m}
+        grp.update(size_grp)
         agg_names = [n for n in names if self.group_of[n] in GROUPS]   # 업권 전체 = 엑셀 비교 대상 회사
-        series: dict[str, dict] = {c: {} for c in names + [ALL_LABEL] + GROUPS}
+        series: dict[str, dict] = {c: {} for c in names + [ALL_LABEL] + GROUPS + list(size_grp)}
 
         def to_list(row):
             return [None if (v is None or not np.isfinite(v)) else round(float(v), 3) for v in row]
@@ -379,8 +403,9 @@ class SecData:
             "allLabel": ALL_LABEL,
             "groups": GROUPS,
             "ratedLabel": "",
-            "companies": [ALL_LABEL] + companies_sorted,
-            "rated": [ALL_LABEL] + companies_sorted,
+            "companies": [ALL_LABEL] + list(size_grp) + companies_sorted,
+            "rated": [ALL_LABEL] + list(size_grp) + companies_sorted,
+            "members": size_grp,
             "series": {k: v for k, v in series.items() if v},
         }
 

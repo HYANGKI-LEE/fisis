@@ -558,6 +558,14 @@ function kisRenderStack(el, ser, idx) {
   }, {displaylogo: false, responsive: true});
 }
 
+// 회사별 표/막대에 보여줄 회사: 선택이 대형/중소형 같은 그룹이면 그 그룹 회사만, 아니면 전체 회사
+function kisMemberNames() {
+  var mem = KIS.d.members && KIS.d.members[KIS.company];
+  if (mem) return mem;
+  var groupLabels = KIS.d.members ? Object.keys(KIS.d.members) : [];
+  return KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel && groupLabels.indexOf(c) === -1; });
+}
+
 // 회사별 비교 막대: 지표/기준 분기를 고르면 전 회사를 큰 순서로 (선택 회사는 빨강)
 function kisCbarChange(sel) {
   var el = sel.closest('.kis-cbar-box').querySelector('.kis-chart');
@@ -570,7 +578,7 @@ function kisRenderCbar(el, idx) {
   var metric = cell.querySelector('.kis-cbar-metric').value, q = cell.querySelector('.kis-cbar-q').value;
   var spec = JSON.parse(el.dataset.cbar).filter(function(m){ return m.k === metric; })[0] || {};
   var qi = KIS.d.quarters.indexOf(q), S = KIS.d.series;
-  var names = KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel; });
+  var names = kisMemberNames();
   var pairs = names.map(function(c){ return [c, S[c] && S[c][metric] ? S[c][metric][qi] : null]; })
     .filter(function(p){ return p[1] !== null && p[1] !== undefined; });
   if (!pairs.length) { emptyChartMsg(el.id, q + '에는 ' + (spec.n || metric) + ' 데이터가 없어요. 다른 분기를 선택해보세요.'); return; }
@@ -616,7 +624,7 @@ function kisRenderCtable(box, idx) {
     if (u === 'x') return v.toFixed(1);
     return v.toLocaleString('ko-KR', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
   };
-  var names = KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel; });
+  var names = kisMemberNames();
   var rows = names.map(function(c){ return {c: c, v: cols.map(function(col){ return cellVal(c, col); })}; });
   if (st.c >= 0) {
     rows.sort(function(a, b){
@@ -633,8 +641,9 @@ function kisRenderCtable(box, idx) {
     return '<tr' + (r.c === KIS.company ? ' class="kis-bold"' : '') + '><td>' + (i + 1) + '</td><td>' + r.c + '</td>' +
       r.v.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
   }).join('');
-  var allv = cols.map(function(col){ return cellVal(KIS.d.allLabel, col); });
-  body += '<tr class="kis-bold"><td></td><td>' + KIS.d.allLabel + '</td>' + allv.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
+  var sumLabel = (KIS.d.members && KIS.d.members[KIS.company]) ? KIS.company : KIS.d.allLabel;   // 합계 행: 선택한 그룹 또는 업권 전체
+  var allv = cols.map(function(col){ return cellVal(sumLabel, col); });
+  body += '<tr class="kis-bold"><td></td><td>' + sumLabel + '</td>' + allv.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
   box.querySelector('thead').innerHTML = head;
   box.querySelector('tbody').innerHTML = body;
   var cap = box.parentElement.querySelector('.kis-ctable-q');
