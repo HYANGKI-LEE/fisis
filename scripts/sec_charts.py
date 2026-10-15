@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from kis_charts import PERIOD_PRESETS, _table_html  # noqa: E402
-from sec_data import ALL_LABEL  # noqa: E402
+from sec_data import ALL_LABEL, BASE_GROUP  # noqa: E402
 
 TAB_LABELS = ["주요 지표", "최근 실적", "수익성", "자산건전성", "자본적정성", "유동성", "파생결합증권", "재무상태표", "손익계산서", "전체 리스트"]
 COLUMNS = 3
@@ -241,7 +241,7 @@ CHART_NOTES = {
     "pf_c_rev": "차트는 모두 분기 개별 금액이에요(표는 연초부터의 누계).",
     "pf_c_net": "영업순수익 = 영업수익 - 영업비용 (대출채권 관련 손익·기타대손충당금·충당부채 전입액 제외).",
     "pf_c_netm": "영업순수익률 = 영업순수익 ÷ 영업수익 (당분기). 4분기 누적은 최근 4개 분기 합계끼리 나눈 값이에요.",
-    "pf_c_share": "영업순수익 점유율 = 해당 회사 영업순수익(당분기) ÷ FISIS 증권사 전체(외국계 지점 포함) 영업순수익(당분기). 증권사 전체를 고르면 100%예요.",
+    "pf_c_share": "영업순수익 점유율 = 해당 회사 영업순수익(당분기) ÷ FISIS 증권사 전체(외국계 지점 포함) 영업순수익(당분기). 유효등급 보유·대형·중소형을 고르면 그 그룹 합산 점유율이에요.",
     "pf_c_op": "막대: 영업이익, 선: 영업이익률(영업이익 ÷ 영업수익, 우축). 4분기 누적은 최근 4개 분기 합계 기준이에요.",
     "pf_c_ni": "막대: 당기순이익, 선: 당기순이익률(당기순이익 ÷ 영업수익, 우축). 4분기 누적은 최근 4개 분기 합계 기준이에요.",
     "pf_c_opm": "영업이익률 = 영업이익 ÷ 영업수익, 세전이익률 = 법인세비용차감전순이익 ÷ 영업수익, 당기순이익률 = 당기순이익 ÷ 영업수익 (모두 당분기).",
@@ -293,7 +293,7 @@ def render_controls(allow_target: bool = False) -> str:
     return (
         '<div class="kis-controls">'
         '<div class="control-row"><label>회사(검색 가능) '
-        f'<input type="text" class="kis-company" value="{ALL_LABEL}" list="{LIST_ID}" autocomplete="off" '
+        f'<input type="text" class="kis-company" value="{BASE_GROUP}" list="{LIST_ID}" autocomplete="off" '
         'onfocus="kisCompanyFocus(this)" onblur="kisCompanyBlur(this)" oninput="kisCompanyInput(this)"></label></div>'
         f'<div class="period-bar"><span class="period-label">기간</span>{btns}</div>'
         '<div class="custom-range kis-custom">'
@@ -366,7 +366,7 @@ def _ah_bar(prefix: str) -> str:
         f'<div id="kis-{prefix}-ah_bar" class="plotly-chart kis-chart" data-key="ah_bar" data-type="hbar" data-name="자산 종류별 고정이하·요주의이하 비율" '
         f"data-unit=\"%\" data-hbar='{spec}'></div>"
         '<p class="caption kis-note">비율 = 해당 자산 종류의 고정이하(또는 요주의이하) ÷ 그 자산의 건전성 분류대상 금액이에요. 요주의이하는 요주의+고정이하(고정·회수의문·추정손실)예요. '
-        '증권사 전체를 고르면 항목마다 막대 2개, 회사나 그룹(유효등급 보유·대형·중소형)을 고르면 선택 대상과 증권사 전체를 비교하는 막대 4개가 나와요. '
+        '유효등급 보유를 고르면 항목마다 막대 2개, 회사나 다른 그룹(대형·중소형)을 고르면 선택 대상과 유효등급 보유를 비교하는 막대 4개가 나와요. '
         '항목 이름 옆 괄호는 선택 대상의 해당 자산 분류대상 잔액(억원)이고, 막대에 마우스를 올리면 각 막대 대상의 잔액이 나와요. 선택 기간의 마지막 분기 기준이고, 해당 자산이 없는 항목은 숨겨요(FISIS 자산건전성 분류, 2011.Q2~).</p>'
         '</div></div>'
     )

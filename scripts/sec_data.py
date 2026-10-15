@@ -38,6 +38,7 @@ CO_LIST = [
 ]
 GROUPS = ["종합IB", "일반증권사"]
 SIZE_LABELS = ["대형", "중소형"]
+BASE_GROUP = "유효등급 보유"
 PEERS_JSON = REPO_DIR / "data" / "securities_peers.json"
 # 자산건전성 분류 대상 자산 종류(SF311 코드) - 자산 종류별 고정이하/요주의이하 비율 차트용
 AH_CODES = "ABCDEFGHIJKLMNOPQRSTUV"
@@ -440,8 +441,9 @@ class SecData:
             "allLabel": ALL_LABEL,
             "groups": list(size_grp),      # 비교선: 증권사 전체 + 유효등급 보유 / 대형 / 중소형
             "ratedLabel": "",
-            "companies": [ALL_LABEL] + list(size_grp) + companies_sorted,
-            "rated": [ALL_LABEL] + list(size_grp) + companies_sorted,
+            "companies": list(size_grp) + companies_sorted,      # 회사 선택 목록에는 '증권사 전체'를 두지 않음
+            "rated": list(size_grp) + companies_sorted,
+            "baseGroup": BASE_GROUP,       # 기본 선택(회사별 막대·표·자산 종류별 비교의 기준)
             "members": size_grp,
             "series": {k: v for k, v in series.items() if v},
         }

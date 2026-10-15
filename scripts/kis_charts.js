@@ -23,7 +23,7 @@ function kisInit() {
   if (!el) return false;
   if (!KIS_POOL[el.id]) {
     var st = {d: JSON.parse(el.textContent), company: null, preset: '전체', start: null, end: null, version: 0, target: 8, key: el.id};
-    st.company = st.d.allLabel;
+    st.company = st.d.baseGroup || st.d.allLabel;     // 증권사 페이지는 '유효등급 보유'가 기본 선택
     KIS_POOL[el.id] = st;
     KIS = st;
     kisFillList(false);
@@ -564,7 +564,8 @@ function kisRenderStack(el, ser, idx) {
 // 자산 종류별 고정이하·요주의이하 비율 세로 막대: 증권사 전체 선택 시 항목당 2개, 그 외에는 선택 항목 vs 증권사 전체 4개
 function kisRenderHbar(el, idx) {
   var items = JSON.parse(el.dataset.hbar), S = KIS.d.series, qi = idx[idx.length - 1];
-  var allS = S[KIS.d.allLabel] || {}, sel = S[KIS.company] || {}, isAll = KIS.company === KIS.d.allLabel;
+  var refKey = KIS.d.baseGroup || KIS.d.allLabel;
+  var allS = S[refKey] || {}, sel = S[KIS.company] || {}, isAll = KIS.company === refKey;
   var ratio = function(src, c, kind) {
     var t = src['ah_' + c + '_tot'], v = src['ah_' + c + '_' + kind];
     if (!t || !v) return null;
@@ -590,7 +591,7 @@ function kisRenderHbar(el, idx) {
             textfont: {size: 9}, cliponaxis: false,
             hovertemplate: '%{x}<br>' + name + ' %{y:.2f}%<br>해당 자산 잔액 %{customdata}억원<extra></extra>'};
   };
-  var co = kisShort(KIS.company), allName = KIS.d.allLabel;
+  var co = kisShort(KIS.company), allName = refKey;
   var traces = isAll
     ? [mk('고정이하', allS, 'sub', '#C0392B'), mk('요주의이하', allS, 'wat', '#2E75B6')]
     : [mk(co + ' 고정이하', sel, 'sub', '#C0392B'), mk(allName + ' 고정이하', allS, 'sub', '#E6A09A'),
@@ -607,6 +608,10 @@ function kisRenderHbar(el, idx) {
 function kisMemberNames() {
   var mem = KIS.d.members && KIS.d.members[KIS.company];
   if (mem) return mem;
+  var baseMem = KIS.d.baseGroup && KIS.d.members && KIS.d.members[KIS.d.baseGroup];
+  if (baseMem) {   // 개별 회사를 골라도 기본 그룹(유효등급 보유) 회사들을 보여주고, 그 밖의 회사를 골랐으면 그 회사도 덧붙임
+    return (baseMem.indexOf(KIS.company) >= 0 || !KIS.d.series[KIS.company]) ? baseMem : baseMem.concat([KIS.company]);
+  }
   var groupLabels = KIS.d.members ? Object.keys(KIS.d.members) : [];
   return KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel && groupLabels.indexOf(c) === -1; });
 }
@@ -686,7 +691,7 @@ function kisRenderCtable(box, idx) {
     return '<tr' + (r.c === KIS.company ? ' class="kis-bold"' : '') + '><td>' + (i + 1) + '</td><td>' + r.c + '</td>' +
       r.v.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
   }).join('');
-  var sumLabel = (KIS.d.members && KIS.d.members[KIS.company]) ? KIS.company : KIS.d.allLabel;   // 합계 행: 선택한 그룹 또는 업권 전체
+  var sumLabel = (KIS.d.members && KIS.d.members[KIS.company]) ? KIS.company : (KIS.d.baseGroup || KIS.d.allLabel);   // 합계 행: 선택한 그룹 또는 업권 전체
   var allv = cols.map(function(col){ return cellVal(sumLabel, col); });
   body += '<tr class="kis-bold"><td></td><td>' + sumLabel + '</td>' + allv.map(function(v, j){ return '<td>' + fmt(v, cols[j].u) + '</td>'; }).join('') + '</tr>';
   box.querySelector('thead').innerHTML = head;
