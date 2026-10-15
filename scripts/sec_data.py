@@ -361,7 +361,8 @@ class SecData:
                     for lab in SIZE_LABELS}
         size_grp = {lab: m for lab, m in size_grp.items() if m}
         grp.update(size_grp)
-        agg_names = [n for n in names if self.group_of[n] in GROUPS]   # 업권 전체 = 엑셀 비교 대상 회사
+        agg_names = list(names)   # 업권 전체 = FISIS 증권사 전체(외국계 지점 포함)
+        live = self.metrics["bs_asset"]["df"][self.cal[-1]].notna()   # 회사 선택 목록은 최근 분기 자산이 있는 현존 회사만
         series: dict[str, dict] = {c: {} for c in names + [ALL_LABEL] + GROUPS + list(size_grp)}
 
         def to_list(row):
@@ -403,7 +404,10 @@ class SecData:
                     series[lab][key] = vals
 
         asset_latest = self.metrics["bs_asset"]["df"][self.cal[-1]].fillna(0)
-        companies_sorted = sorted(names, key=lambda c: -asset_latest.get(c, 0))
+        companies_sorted = sorted([n for n in names if live.get(n, False)], key=lambda c: -asset_latest.get(c, 0))
+        keep = set(companies_sorted) | {ALL_LABEL} | set(GROUPS) | set(size_grp)
+        series = {k: v for k, v in series.items() if k in keep}
+        size_grp = {lab: [n for n in m if n in keep] for lab, m in size_grp.items()}
         return {
             "quarters": [format_ym(int(q)) for q in self.cal],
             "allLabel": ALL_LABEL,
@@ -442,7 +446,7 @@ def build_list_rows() -> list[dict]:
 def build_sec_payload() -> dict | None:
     if latest_final_df_path(SECTOR) is None:
         return None
-    return SecData().payload()
+    return SecData(all_entities=True).payload()
 
 
 if __name__ == "__main__":
