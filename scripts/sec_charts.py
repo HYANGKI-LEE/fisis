@@ -239,6 +239,13 @@ SECTIONS = {
         ("key_lq", "유동성비율", "%", "cmp3", {"k": "lq_ratio", "gray": True}),
         ("key_share", "영업순수익 점유율", "%", "line", None),
     ],
+    "key_sc": [
+        ("sc_eq_roe", "자기자본 vs ROE", "억원 / %", "scatter",
+         {"x": "bs_equity", "y": "pf_roe", "xl": "자기자본 (억원, 로그축)", "yl": "ROE (%)", "xu": "억원", "xlog": True}),
+        ("sc_nw_roe", "순요주의이하여신/자기자본 vs ROE", "%", "scatter",
+         {"x": "aq_nwatch", "y": "pf_roe", "xl": "순요주의이하여신/자기자본 (%)", "yl": "ROE (%)"}),
+        ("e_sc", "", "", "empty", None),
+    ],
     "perf_trend": [
         ("pr_ni", "당기순이익", "억원", "bar", None),
         ("pr_net", "영업순수익", "억원", "bar", None),
@@ -254,6 +261,8 @@ SECTIONS = {
 SERIES_KEY = {"pf_c_rev": "is_rev", "pf_c_cost": "is_cost", "pf_c_net": "is_net", "pf_c_share": "pf_share_q", "key_share": "pf_share", "pr_ni": "is_ni", "pr_net": "is_net", "lq_gap": "lq_gap"}
 
 CHART_NOTES = {
+    "sc_eq_roe": "유효등급 보유 33개사의 선택 기간 마지막 분기 값이에요(가로축은 로그 눈금). ROE는 표와 같은 기준(당기순이익 누계 연환산 ÷ 자기자본 평균)이고, 빨간 마름모는 위에서 고른 회사예요.",
+    "sc_nw_roe": "순요주의이하여신/자기자본 = (요주의이하-대손충당금) ÷ 자기자본 (대손충당금은 재무상태표 기준). ROE는 표와 같은 기준이에요.",
     "bt_asset": "선택 대상의 자산 구성이에요. FVPL = 당기손익-공정가치측정증권, FVOCI = 기타포괄손익-공정가치측정증권(2017년 이전은 당기손익인식증권·매도가능증권). 기타자산 = 총자산 - 위 4개 항목.",
     "bt_liab": "총부채 = 예수부채 + 차입부채예요(기타부채·파생상품부채 제외). 차입금에는 콜머니, 사채에는 후순위사채가 들어 있고, 발행어음은 종합금융투자사업자·종금계정 발행분이에요.",
     "bt_stm": "단기 시장성 조달 = RP매도 + CP/STB + 발행어음(종합금융투자사업자 발행분) + 콜머니, 비중 = 단기 시장성 조달 ÷ 차입부채. CP/STB는 FISIS에 따로 없어서 전자단기사채(사채 중) + 차입금 중 기타(CP 포함)로 근사했어요.",
@@ -327,7 +336,7 @@ def _cell(prefix, key, name, unit, kind, extra):
     if kind == "empty":
         return '<div class="cell"></div>'
     attrs = ""
-    if kind in ("dual", "cmp3", "cmp3m", "stackj"):
+    if kind in ("dual", "cmp3", "cmp3m", "stackj", "scatter"):
         attrs = f" data-{kind}='{json.dumps(extra, ensure_ascii=False)}'"
     elif kind in ("multi", "stack"):
         spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
@@ -485,7 +494,8 @@ def render_bodies(prefix: str, quarters: list[str], list_html: str = "") -> list
         return f'<h4>{SECTION_TITLES[name]}</h4>' + _grid(prefix, SECTIONS[name])
 
     bodies = {
-        "주요 지표": ctl + _tables("주요 지표") + _cbar(prefix, "cb_key", "회사별 지표 비교", CBAR_KEY, quarters) + sec("key"),
+        "주요 지표": (ctl + _tables("주요 지표") + _cbar(prefix, "cb_key", "회사별 지표 비교", CBAR_KEY, quarters) + sec("key")
+                  + '<h4>유효등급 보유 회사 산점도</h4>' + _grid(prefix, SECTIONS["key_sc"])),
         "최근 실적": (ctl + _cbar(prefix, "cb_perf", "회사별 실적 비교", CBAR_PERF, quarters) + sec("perf_trend") + _ctable("회사별 최신 실적")),
         "수익성": ctl + _tables("수익성") + sec("pf"),
         "자산건전성": ctl + _tables("자산건전성") + _ah_bar(prefix) + sec("aq"),
