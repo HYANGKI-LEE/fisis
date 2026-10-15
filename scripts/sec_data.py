@@ -274,6 +274,12 @@ class SecData:
         add_sum("pf_avg_a", avg_a)
         net_y = IS_y["net"]
         add_sum("is_net_ytd", net_y)
+        # 수익성 표용 누계(연초~해당 분기) 금액과 이익률(영업수익 대비)
+        for k in ("rev", "cost", "op", "pretax", "ni"):
+            add_sum(f"is_{k}_ytd", IS_y[k])
+        add_ratio("pf_opm", IS_y["op"], IS_y["rev"])
+        add_ratio("pf_ptm", IS_y["pretax"], IS_y["rev"])
+        add_ratio("pf_ntm", IS_y["ni"], IS_y["rev"])
         # 영업순수익 점유율 분모 = FISIS 증권사 전체(외국계 지점 포함) 영업순수익(누계) 합계 (엑셀 정의)
         def _tot(code):
             t = self.df_all[self.df_all["코드"] == code].groupby("금융회사코드")[self.qcols].first()

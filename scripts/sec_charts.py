@@ -77,11 +77,14 @@ TAB_TABLES = {
     },
     "수익성": {
         "title": "수익성 (단위: 억원, %)",
-        "note": "영업순수익(누계) = 영업수익 - 영업비용(대출채권 관련 손익·기타대손충당금·충당부채 전입액 제외)의 연초부터 누계예요. "
+        "note": "금액은 연초부터의 누계예요(연도 12월 열은 연간). 영업이익률·세전이익률·당기순이익률 = 각 이익(누계) ÷ 영업수익(누계)이에요. 영업순수익(누계) = 영업수익 - 영업비용(대출채권 관련 손익·기타대손충당금·충당부채 전입액 제외)의 연초부터 누계예요. "
                 "영업순수익 점유율 = 영업순수익(누계) ÷ FISIS 증권사 전체(외국계 지점 포함) 영업순수익 합계. ROA = 당기순이익(누계, 연환산) ÷ ((직전 결산말+해당 시점) 총자산 평균), "
                 "ROE는 자기자본 기준(분·반기는 연환산)이고, 판관비/영업순수익 = 판매관리비 ÷ 영업순수익(누계)이에요.",
         "rows": [
+            _r("영업수익 (누계)", "eok", "is_rev_ytd", 0, True), _r("영업비용 (누계)", "eok", "is_cost_ytd"),
             _r("영업순수익 (누계)", "eok", "is_net_ytd", 0, True), _r("영업순수익 점유율", "pct", "pf_share"),
+            _r("영업이익 (누계)", "eok", "is_op_ytd"), _r("세전이익 (누계)", "eok", "is_pretax_ytd"), _r("당기순이익 (누계)", "eok", "is_ni_ytd", 0, True),
+            _r("영업이익률", "pct", "pf_opm"), _r("세전이익률", "pct", "pf_ptm"), _r("당기순이익률", "pct", "pf_ntm"),
             _r("총자산이익률(ROA)", "pct", "pf_roa"), _r("자기자본이익률(ROE)", "pct", "pf_roe"), _r("판관비/영업순수익", "pct", "pf_sga"),
         ],
     },
@@ -164,8 +167,16 @@ def _bs_charts():
 _BS_CHARTS = _bs_charts()
 SECTIONS = {
     "pf": [
+        ("pf_c_rev", "영업수익 (누계)", "억원", "bar", None),
+        ("pf_c_cost", "영업비용 (누계)", "억원", "bar", None),
         ("pf_c_net", "영업순수익 (누계)", "억원", "bar", None),
         ("pf_c_share", "영업순수익 점유율", "%", "line", None),
+        ("pf_c_op", "영업이익 (누계)", "억원", "bar", None),
+        ("pf_c_pt", "세전이익 (누계)", "억원", "bar", None),
+        ("pf_c_ni", "당기순이익 (누계)", "억원", "bar", None),
+        ("pf_c_opm", "영업이익률", "%", "cmp3", {"k": "pf_opm"}),
+        ("pf_c_ptm", "세전이익률", "%", "cmp3", {"k": "pf_ptm"}),
+        ("pf_c_ntm", "당기순이익률", "%", "cmp3", {"k": "pf_ntm"}),
         ("pf_c_roa", "총자산이익률(ROA)", "%", "cmp3", {"k": "pf_roa"}),
         ("pf_c_roe", "자기자본이익률(ROE)", "%", "cmp3", {"k": "pf_roe"}),
         ("pf_c_sga", "판관비/영업순수익", "%", "cmp3", {"k": "pf_sga"}),
@@ -223,9 +234,13 @@ SECTIONS = {
     ],
 }
 # 차트 키와 시리즈 키가 다른 단순 차트(bar/line)의 실제 시리즈 키
-SERIES_KEY = {"pf_c_net": "is_net_ytd", "pf_c_share": "pf_share", "key_share": "pf_share", "pr_ni": "is_ni", "pr_net": "is_net", "lq_gap": "lq_gap"}
+SERIES_KEY = {"pf_c_rev": "is_rev_ytd", "pf_c_cost": "is_cost_ytd", "pf_c_op": "is_op_ytd", "pf_c_pt": "is_pretax_ytd", "pf_c_ni": "is_ni_ytd", "pf_c_net": "is_net_ytd", "pf_c_share": "pf_share", "key_share": "pf_share", "pr_ni": "is_ni", "pr_net": "is_net", "lq_gap": "lq_gap"}
 
 CHART_NOTES = {
+    "pf_c_opm": "영업이익률 = 영업이익(누계) ÷ 영업수익(누계).",
+    "pf_c_ptm": "세전이익률 = 법인세비용차감전순이익(누계) ÷ 영업수익(누계).",
+    "pf_c_ntm": "당기순이익률 = 당기순이익(누계) ÷ 영업수익(누계).",
+    "pf_c_rev": "금액 차트는 연초부터의 누계라서 4분기에 가장 크고 1분기에 다시 작아져요.",
     "pf_c_net": "영업순수익(누계) = 영업수익 - 영업비용(대출채권 관련 손익·기타대손충당금·충당부채 전입액 제외)의 연초부터 누계예요.",
     "pf_c_share": "영업순수익 점유율 = 해당 회사 영업순수익(누계) ÷ FISIS 증권사 전체(외국계 지점 포함) 영업순수익 합계. 선택 회사 선만 그려요(업권 전체를 고르면 분석 대상 26개사의 합산 점유율).",
     "pf_c_roa": "ROA = 당기순이익(누계, 연환산) ÷ ((직전 결산말 총자산+해당 시점 총자산) ÷ 2). 분·반기 시점은 연환산이에요. 회사를 고르면 업권 전체·종합IB·일반증권사와 비교해요.",
