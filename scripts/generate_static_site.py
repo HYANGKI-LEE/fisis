@@ -33,6 +33,8 @@ import kis_charts  # noqa: E402
 import rating_model  # noqa: E402
 import sec_charts  # noqa: E402
 import sec_data  # noqa: E402
+import card_charts  # noqa: E402
+import card_data  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
@@ -941,6 +943,16 @@ def render_securities_page(sector_key: str, sector: str) -> str:
     return tabs_html(sec_charts.TAB_LABELS, bodies) + sec_charts.render_data_script(payload)
 
 
+def render_card_page(sector_key: str, sector: str) -> str:
+    """신용카드사: 저축은행·증권사와 같은 양식(공통 회사/기간 선택줄 + 표 + 3열 차트), 3사 신용카드 자료의 항목 합집합."""
+    payload = card_data.build_card_payload()
+    if payload is None:
+        return '<p class="caption">아직 수집된 데이터가 없어요.</p>'
+    list_rows, list_q = card_data.build_list_rows()
+    bodies = card_charts.render_bodies(sector_key, payload["quarters"], card_charts.render_list_tab(list_rows, list_q))
+    return tabs_html(card_charts.TAB_LABELS, bodies) + card_charts.render_data_script(payload)
+
+
 CSS = """
 :root { --accent:#2980B9; --border:#e5e7eb; --text:#222; --muted:#666; --bg:#fff; --side-bg:#f7f8fa; }
 * { box-sizing: border-box; }
@@ -1801,6 +1813,8 @@ def build() -> str:
             content = render_savings_bank_page(key, s)
         elif s == "증권사":
             content = render_securities_page(key, s)
+        elif s == "신용카드사":
+            content = render_card_page(key, s)
         elif latest_final_df_path(s) is None:
             content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
         else:
