@@ -40,17 +40,18 @@ def _output_dir():
 def latest_final_df_path(sector: str) -> str | None:
     if sector in COMBINED_SECTORS:
         folder = os.path.join(_output_dir(), COMBINED_SECTORS[sector])
-        files = [f for f in glob.glob(os.path.join(folder, "*.csv")) if "업데이트" not in f]
+        files = [f for f in glob.glob(os.path.join(folder, "*.csv*")) if "업데이트" not in f and f.endswith((".csv", ".csv.gz"))]
     elif sector in SECTOR_FOLDERS:
         final_dir = os.path.join(_output_dir(), SECTOR_FOLDERS[sector], "final_df")
-        files = [f for f in glob.glob(os.path.join(final_dir, "*.csv")) if "업데이트" not in f]
+        # 100MB를 넘는 final_df(예: 자산운용사)는 .csv.gz로 저장한다 - pandas가 확장자로 압축을 알아서 풀어 읽음
+        files = [f for f in glob.glob(os.path.join(final_dir, "*.csv*")) if "업데이트" not in f and f.endswith((".csv", ".csv.gz"))]
     else:
         return None    # 데이터를 아직 수집하지 않은 업권
     if not files:
         return None
 
     def period_key(f):
-        m = re.search(r"_(\d{6})\.csv$", f)
+        m = re.search(r"_(\d{6})\.csv(\.gz)?$", f)
         return m.group(1) if m else "000000"
 
     return max(files, key=period_key)

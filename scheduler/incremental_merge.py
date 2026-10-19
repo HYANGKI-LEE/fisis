@@ -80,7 +80,9 @@ def merge_into_final_df(sector: str, lrgDiv: str, lrgDivNm: str) -> str | None:
         return None
 
     new_period = new_date_cols[-1]  # 여러 분기를 한 번에 받았을 수 있으니 가장 최근 분기를 파일명에 사용
-    new_path = os.path.join(os.path.dirname(old_path), f"{lrgDivNm}_{new_period}.csv")
+    # 기존 파일이 .csv.gz(100MB 초과 업권)면 새 파일도 압축해서 저장 - GitHub 100MB 한도 때문
+    ext = ".csv.gz" if old_path.endswith(".gz") else ".csv"
+    new_path = os.path.join(os.path.dirname(old_path), f"{lrgDivNm}_{new_period}{ext}")
     merged.to_csv(new_path, encoding="cp949")
     return new_path
 

@@ -83,7 +83,7 @@ def main() -> int:
         for m in UPDATED_RE.finditer(result.stdout)
     ]
 
-    status = run(["git", "status", "--porcelain", "--", "output/"])
+    status = run(["git", "-c", "core.quotepath=false", "status", "--porcelain", "-uall", "--", "output/"])   # -uall: 새 폴더도 파일 하나하나 나열(대용량 파일 검사용)
     changed_paths = [line[3:] for line in status.stdout.splitlines() if line.strip()]
 
     if not changed_paths:

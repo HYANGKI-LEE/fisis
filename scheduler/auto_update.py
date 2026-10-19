@@ -50,7 +50,7 @@ from config import Div_dict  # noqa: E402
 from dashboard.loader import SECTOR_FOLDERS, latest_final_df_path  # noqa: E402
 from scheduler.incremental_merge import merge_into_final_df  # noqa: E402
 
-PERIOD_RE = re.compile(r"_(\d{6})\.csv$")
+PERIOD_RE = re.compile(r"_(\d{6})\.csv(\.gz)?$")
 FOLDER_CODE_RE = re.compile(r"^\((\w)\)")
 
 
@@ -163,6 +163,23 @@ def _safe_print(text: str, file=None) -> None:
     stream.write(text.encode(encoding, errors="replace").decode(encoding) + "\n")
 
 
+GITHUB_LIMIT_MB = 90
+
+
+def compress_if_large(path: str, logger: SectorLogger) -> str:
+    """final_df가 GitHub 파일 한도(100MB)에 가까우면 .csv.gz로 압축해서 원본 csv를 지움(내용은 같음)."""
+    import gzip
+    import shutil
+    if not path.endswith(".csv") or os.path.getsize(path) / 1024 / 1024 <= GITHUB_LIMIT_MB:
+        return path
+    gz = path + ".gz"
+    with open(path, "rb") as f, gzip.open(gz, "wb", compresslevel=6) as g:
+        shutil.copyfileobj(f, g)
+    logger.log(f"{os.path.getsize(path) / 1024 / 1024:.0f}MB -> {os.path.getsize(gz) / 1024 / 1024:.0f}MB 압축: {gz}")
+    os.remove(path)
+    return gz
+
+
 def run_step(args: list[str], logger: SectorLogger) -> bool:
     """자식 프로세스를 돌리면서 출력을 업권 로그에 실시간으로 흘려보냄."""
     logger.log(">>> " + " ".join(os.path.basename(a) if a == sys.executable else a for a in args), echo=False)
@@ -269,10 +286,9 @@ def initial_load(sector: str, lrgDiv: str, lrgDivNm: str, dry_run: bool, logger:
     if new_existing is None:
         logger.log("merge.py 후에도 final_df가 없음")
         return False
+    compress_if_large(latest_final_df_path(sector), logger)
     size_mb = os.path.getsize(latest_final_df_path(sector)) / 1024 / 1024
     logger.log(f"final_df 생성: {latest_final_df_path(sector)} ({size_mb:.1f}MB)")
-    if size_mb > 90:
-        logger.log("경고: GitHub 파일 한도(100MB)에 근접/초과 - run_daily가 push를 막을 수 있음")
     logger.log(f"[{sector}] 업데이트됨: 0 -> {new_existing}")
     return True
 
