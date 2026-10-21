@@ -1100,7 +1100,7 @@ function showTab(groupId, idx) {
 }
 function renderChart(id) {
   var payload = JSON.parse(document.getElementById(id + '-data').textContent);
-  Plotly.newPlot(id, payload.data, payload.layout, {displaylogo:false, responsive:true});
+  Plotly.newPlot(id, payload.data, payload.layout, {displaylogo:false, responsive:true, modeBarButtonsToAdd: window.ppButtons ? window.ppButtons() : []});
 }
 
 var SECTOR_DATA = {};
@@ -1316,6 +1316,7 @@ function plotReact(id, data, layout, cfg) {
       t.line.width = Math.max(t.line.width || 0, 2.6);
     }
   });
+  if (window.ppButtons) cfg = Object.assign({}, cfg || {}, {modeBarButtonsToAdd: window.ppButtons()});   // 모든 차트에 '이미지 복사' 버튼
   return Plotly.react(id, data, layout, cfg);
 }
 function emptyChartMsg(id, msg) {

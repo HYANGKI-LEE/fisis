@@ -156,6 +156,11 @@ class CardData:
         IS_y.update({"cr_fee": C("B20"), "cr_inst": C("B23"), "cr_cash": C("B24"), "cr_loan": C("B25"), "cr_annual": C("B26")})
         IS_y["cr_oth"] = C("B2") - sum(f0(IS_y[k]) for k in ("cr_fee", "cr_inst", "cr_cash", "cr_loan", "cr_annual"))
         IS_q = {k: self._flow(v) for k, v in IS_y.items()}
+        # 2018.12부터 손익계산서 통계표(SC218)의 수익·비용 표시 기준이 바뀌어(총액 -> 순액 등) 2018.Q4 분기 금액이 이어지지 않는다. 비교 가능한 항목(PPOP·대손·순이익 등)만 남기고 비움.
+        keep = {"ni", "pretax", "dae", "dae_gross", "reversal", "ppop", "op"}
+        for k, v in IS_q.items():
+            if k not in keep and "201812" in v.columns:
+                v["201812"] = np.nan
         self.IS_y, self.IS_q = IS_y, IS_q
         for k in IS_y:
             add_sum(f"is_{k}", IS_q[k])

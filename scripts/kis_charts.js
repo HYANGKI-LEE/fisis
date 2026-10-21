@@ -981,3 +981,139 @@ function ovRender(force) {
                               xaxis: kisXAxis(x.length), yaxis: {ticksuffix: '%', rangemode: 'tozero'}, legend: {}}, {displaylogo: false, responsive: true});
   });
 }
+
+
+/* ===================== 이미지 복사: 모든 차트를 가로 8cm x 세로 6cm, 글씨 7pt로 통일해서 클립보드에 복사 ===================== */
+// 보고서 그림 규격: 8cm x 6cm. 이미지 폭(8cm)에 대한 글자 크기(7pt) 비율이 그대로 유지되도록 288x216 가상 캔버스에서 글씨를 폭의 7/226.8만큼으로 두고,
+// 300dpi(945x709px)로 렌더링한다. 붙여넣은 뒤 8cm로 맞추면 글씨가 정확히 7pt가 된다.
+var PP = {w: 288, h: 216, widthCm: 8, dpi: 300};
+PP.font = 7 / (PP.widthCm / 2.54 * 72) * PP.w;                    // 7pt에 해당하는 가상 캔버스 글자 크기(px)
+PP.scale = 3.28333;      // 가상 캔버스(288x216) -> 300dpi 픽셀 배율. Plotly가 내림 처리해서 945 x 709px(= 8cm x 6cm)이 됨
+PP.family = '"Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+
+function ppToast(msg, bad) {
+  var t = document.getElementById('ppToast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'ppToast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);padding:10px 18px;border-radius:8px;font-size:14px;z-index:9999;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25);transition:opacity .3s;';
+    document.body.appendChild(t);
+  }
+  t.style.background = bad ? '#c0392b' : '#2c3e50';
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.style.opacity = '0'; }, 2600);
+}
+
+function ppLayout(gd) {
+  var F = PP.font, fam = PP.family;
+  var L = JSON.parse(JSON.stringify(gd.layout || {}));
+  var n0 = (gd.data && gd.data[0] && gd.data[0].x) ? gd.data[0].x.length : 0;
+  L.width = PP.w; L.height = PP.h;
+  L.font = {family: fam, size: F, color: '#222'};
+  L.margin = {l: 30, r: 8, t: 22, b: 26, pad: 0};
+  L.paper_bgcolor = 'white'; L.plot_bgcolor = 'white';
+  var t = L.title;
+  if (t && (typeof t === 'string' || t.text)) {
+    var txt = (typeof t === 'string' ? t : t.text).replace(/<br><sup>(.*?)<[/]sup>/g, ' ($1)').replace(/<sup>(.*?)<[/]sup>/g, '$1');
+    L.title = {text: txt, x: 0.01, xanchor: 'left', y: 0.985, yanchor: 'top', font: {size: F, family: fam, color: '#111'}};
+  }
+  Object.keys(L).forEach(function(k){
+    if (!/^[xy]axis[0-9]*$/.test(k)) return;
+    var ax = L[k];
+    ax.tickfont = {size: F, family: fam, color: '#333'};
+    if (ax.title) {
+      var tx = typeof ax.title === 'string' ? ax.title : ax.title.text;
+      ax.title = {text: tx, font: {size: F, family: fam}, standoff: 2};
+    }
+    ax.automargin = true;
+    if (ax.type === 'category' && ax.tickmode === 'linear' && n0 > 0) {           // 분기 라벨이 너무 촘촘하면 간격을 넓혀 최대 8개 안팎만 표시
+      var d = Math.max(4, Math.ceil(n0 / 8 / 4) * 4);
+      ax.dtick = d; ax.tick0 = (n0 - 1) % d; ax.tickangle = -45;
+    }
+  });
+  // 범례는 보고서 그림처럼 차트 위쪽(제목 아래)에 가로로 배치하고, 줄 수만큼 위쪽 여백을 늘린다
+  var names = (gd.data || []).filter(function(tr){ return tr.name && tr.showlegend !== false && tr.mode !== 'text'; }).map(function(tr){ return tr.name; });
+  var legendOn = L.showlegend !== false && names.length > 1 && !(gd.data || []).every(function(tr){ return tr.type === 'pie'; });
+  var titleH = (L.title && L.title.text) ? F * 1.9 : 4, rows = 0;
+  if (legendOn) {
+    var avail = PP.w - 30 - 8, cur = 0; rows = 1;
+    names.forEach(function(nm){
+      var wdt = nm.length * F * 0.95 + 26;
+      if (cur + wdt > avail && cur > 0) { rows++; cur = 0; }
+      cur += wdt;
+    });
+    L.legend = {orientation: 'h', x: 0, xanchor: 'left', y: 1.0, yanchor: 'bottom', yref: 'paper', bgcolor: 'rgba(255,255,255,0)', borderwidth: 0,
+                font: {size: F, family: fam}, tracegroupgap: 0, itemsizing: 'constant', itemwidth: 24};
+  } else {
+    L.showlegend = false;
+  }
+  L.margin.t = titleH + rows * F * 1.6 + 8;
+  (L.annotations || []).forEach(function(a){ a.font = Object.assign({}, a.font || {}, {size: F, family: fam}); });
+  return L;
+}
+function ppData(gd) {
+  var F = PP.font;
+  var D = JSON.parse(JSON.stringify(gd.data || []));
+  D.forEach(function(tr){
+    if (tr.line && typeof tr.line.width === 'number') tr.line.width = Math.max(1, tr.line.width * 0.55);
+    if (tr.marker && typeof tr.marker.size === 'number') tr.marker.size = Math.max(4, tr.marker.size * 0.6);
+    if (tr.textfont) tr.textfont.size = F; else if (tr.text) tr.textfont = {size: F};
+    if (tr.type === 'bar' && tr.text) tr.textfont = {size: F * 0.9};
+    if (tr.outsidetextfont) tr.outsidetextfont.size = F;
+  });
+  return D;
+}
+function ppRender(gd) {
+  var holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + PP.w + 'px;height:' + PP.h + 'px;';
+  document.body.appendChild(holder);
+  return Plotly.newPlot(holder, ppData(gd), ppLayout(gd), {staticPlot: true, displayModeBar: false})
+    .then(function(){ return Plotly.toImage(holder, {format: 'png', width: PP.w, height: PP.h, scale: PP.scale}); })
+    .then(function(url){ Plotly.purge(holder); holder.remove(); return fetch(url).then(function(r){ return r.blob(); }); })
+    .catch(function(e){ try { Plotly.purge(holder); } catch (x) {} holder.remove(); throw e; });
+}
+
+// PNG에 300dpi(pHYs) 정보를 넣어서(붙여넣는 프로그램이 읽으면 8x6cm로 인식)
+var PP_CRC = null;
+function ppCrc(buf) {
+  if (!PP_CRC) { PP_CRC = []; for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); PP_CRC[n] = c >>> 0; } }
+  var crc = 0xFFFFFFFF;
+  for (var i = 0; i < buf.length; i++) crc = PP_CRC[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function ppAddDpi(blob) {
+  return blob.arrayBuffer().then(function(ab){
+    var src = new Uint8Array(ab), ppm = Math.round(PP.dpi / 0.0254);
+    var chunk = new Uint8Array(21);                                  // 길이(4) + 'pHYs'(4) + 데이터(9) + CRC(4)
+    var dv = new DataView(chunk.buffer);
+    dv.setUint32(0, 9); chunk.set([0x70, 0x48, 0x59, 0x73], 4);
+    dv.setUint32(8, ppm); dv.setUint32(12, ppm); chunk[16] = 1;
+    dv.setUint32(17, ppCrc(chunk.subarray(4, 17)));
+    var at = 8 + 25;                                                 // PNG 서명(8) + IHDR 청크(25) 바로 뒤
+    var out = new Uint8Array(src.length + 21);
+    out.set(src.subarray(0, at), 0); out.set(chunk, at); out.set(src.subarray(at), at + 21);
+    return new Blob([out], {type: 'image/png'});
+  });
+}
+
+function ppCopyImage(gd) {
+  ppToast('이미지 만드는 중...');
+  ppRender(gd).then(ppAddDpi).then(function(blob){
+    if (navigator.clipboard && window.ClipboardItem) {
+      return navigator.clipboard.write([new ClipboardItem({'image/png': blob})]).then(function(){
+        ppToast('이미지를 복사했어요 (8cm × 6cm, 글씨 7pt) - 붙여넣은 뒤 가로 8cm로 맞추세요');
+      });
+    }
+    throw new Error('clipboard unsupported');
+  }).catch(function(e){
+    // 클립보드를 못 쓰면 파일로 저장
+    ppRender(gd).then(ppAddDpi).then(function(blob){
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'chart_8x6cm.png'; a.click();
+      ppToast('클립보드를 쓸 수 없어서 PNG 파일로 저장했어요', true);
+    }).catch(function(){ ppToast('이미지를 만들지 못했어요', true); });
+  });
+}
+function ppButtons() {
+  return [{name: 'copyImage', title: '이미지 복사 (가로 8cm × 세로 6cm, 글씨 7pt)',
+           icon: {width: 24, height: 24, ascent: 24, descent: 0, path: 'M2 2H16V4H4V18H2Z M6 6H22V22H6Z'},
+           click: function(gd){ ppCopyImage(gd); }}];
+}
