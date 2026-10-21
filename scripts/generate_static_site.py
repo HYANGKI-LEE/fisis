@@ -35,6 +35,7 @@ import sec_charts  # noqa: E402
 import sec_data  # noqa: E402
 import card_charts  # noqa: E402
 import card_data  # noqa: E402
+import overview_data  # noqa: E402
 from dashboard.format import format_eok, format_pct, format_ym, latest_snapshot, latest_snapshot_full  # noqa: E402
 
 
@@ -943,6 +944,39 @@ def render_securities_page(sector_key: str, sector: str) -> str:
     return tabs_html(sec_charts.TAB_LABELS, bodies) + sec_charts.render_data_script(payload)
 
 
+OVERVIEW_NOTES = {
+    "od": "연체율: 국내은행 = 원화대출금 연체대출잔액 ÷ 대출잔액, 상호저축은행 = 연체금액 ÷ 총여신, 신용카드사·캐피탈사 = 1개월 이상 연체채권 ÷ 총채권, "
+          "생명·손해보험 = 대출채권 연체금액 ÷ 대출채권 총계예요. 증권사·자산운용사·금융지주회사·부동산신탁은 FISIS에 연체율이 없어서 빠져요.",
+    "sub": "고정이하여신비율: 국내은행·상호저축은행·신용카드사·캐피탈사·금융지주회사 = 고정이하여신 ÷ 총여신(총채권), 증권사·자산운용사 = 고정이하 ÷ 분류대상 자산(대출채권·미수금 등 포함), "
+           "부동산신탁 = 고정이하자산 ÷ 분류대상 자산(신탁 기준이라 값이 훨씬 커서 처음엔 숨겨뒀고, 범례를 누르면 보여요). 보험사는 FISIS에 없어서 빠져요.",
+    "watch": "요주의이하여신비율 = (요주의 + 고정이하) ÷ 총여신(국내은행·금융지주회사) 또는 분류대상 자산(증권사·자산운용사). 그 밖의 업권은 FISIS에 요주의 구분이 없어서 빠져요.",
+}
+
+
+def render_overview_page(sector_key: str, sector: str) -> str:
+    """업권종합: 업권별 연체율/고정이하여신비율/요주의이하여신비율을 3열 차트로 비교."""
+    payload = overview_data.build_overview_payload()
+    btns = []
+    for p in kis_charts.PERIOD_PRESETS:
+        if p == "설정":
+            btns.append(f'<button data-preset="{p}" onclick="ovCustomToggle(this)">{p}</button>')
+        else:
+            btns.append(f'<button data-preset="{p}" onclick="ovPreset(\'{p}\',this)">{p}</button>')
+    controls = (
+        '<div class="kis-controls ov-controls">'
+        f'<div class="period-bar"><span class="period-label">기간</span>{"".join(btns)}</div>'
+        '<div class="custom-range kis-custom"><input type="text" class="kis-start" placeholder="2020.Q1" style="width:90px;"> ~ '
+        '<input type="text" class="kis-end" placeholder="2026.Q2" style="width:90px;"> <button onclick="ovCustomApply(this)">적용</button></div></div>'
+    )
+    cells = "".join(
+        f'<div class="cell"><div id="ov-chart-{m["k"]}" class="plotly-chart"></div><p class="caption kis-note">{OVERVIEW_NOTES[m["k"]]}</p></div>'
+        for m in payload["metrics"]
+    )
+    data = f'<script type="application/json" id="ov-data">{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}</script>'
+    return (controls + '<h4>업권별 자산건전성 비교 (단위: %, 범례를 누르면 업권을 켜고 끌 수 있어요)</h4>'
+            f'<div class="grid" style="grid-template-columns:repeat(3,1fr);">{cells}</div>' + data)
+
+
 def render_card_page(sector_key: str, sector: str) -> str:
     """신용카드사: 저축은행·증권사와 같은 양식(공통 회사/기간 선택줄 + 표 + 3열 차트), 3사 신용카드 자료의 항목 합집합."""
     payload = card_data.build_card_payload()
@@ -1054,7 +1088,7 @@ function showPage(id) {
   document.getElementById('nav-' + id).classList.add('active');
   window.scrollTo(0, 0);
   history.replaceState(null, '', '#' + id);
-  setTimeout(function(){ resizeCharts(page.querySelector('.tab-panel.active') || page); if (window.kisRenderVisible) kisRenderVisible(); }, 0);
+  setTimeout(function(){ resizeCharts(page.querySelector('.tab-panel.active') || page); if (window.kisRenderVisible) kisRenderVisible(); if (window.ovRender) ovRender(); }, 0);
 }
 function showTab(groupId, idx) {
   var group = document.querySelector('[data-group="' + groupId + '"]');
@@ -1815,6 +1849,8 @@ def build() -> str:
             content = render_securities_page(key, s)
         elif s == "신용카드사":
             content = render_card_page(key, s)
+        elif s == "업권종합":
+            content = render_overview_page(key, s)
         elif latest_final_df_path(s) is None:
             content = '<p class="caption">아직 수집된 데이터가 없어요.</p>'
         else:

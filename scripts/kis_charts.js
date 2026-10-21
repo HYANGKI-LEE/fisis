@@ -910,3 +910,74 @@ function ratingRender() {
     ? '업권 전체를 고르면 합산 지표로 계산해요(총자산시장점유율은 해당 없어서 제외).'
     : ('참고: 신평사 실제 등급 - ' + (ref || '유효등급 없음'));
 }
+
+
+/* ===================== 업권종합: 업권별 연체율 / 고정이하여신비율 / 요주의이하여신비율 비교 ===================== */
+var OV = null;
+var OV_COLORS = {'국내은행': '#1F3864', '신용카드사': '#E8312F', '캐피탈사': '#ED7D31', '생명보험': '#70AD47', '손해보험': '#9DC3E6',
+                 '증권사': '#2980B9', '자산운용사': '#8E44AD', '상호저축은행': '#F5B301', '부동산신탁': '#7F7F7F', '금융지주회사': '#17A589'};
+var OV_HIDDEN_DEFAULT = {'부동산신탁': true};     // 값이 훨씬 커서 축이 눌리는 업권은 처음엔 숨김(범례 클릭으로 표시)
+
+function ovInit() {
+  if (OV) return true;
+  var el = document.getElementById('ov-data');
+  if (!el) return false;
+  OV = {d: JSON.parse(el.textContent), preset: '전체', start: null, end: null};
+  document.querySelectorAll('.ov-controls .period-bar button[data-preset="전체"]').forEach(function(b){ b.classList.add('active'); });
+  return true;
+}
+function ovIndices() {
+  var q = OV.d.quarters, n = q.length, all = q.map(function(_, i){ return i; });
+  if (OV.preset === '설정' && OV.start && OV.end) {
+    var s = q.indexOf(OV.start), e = q.indexOf(OV.end);
+    if (s !== -1 && e !== -1) return all.filter(function(i){ return i >= s && i <= e; });
+    return all;
+  }
+  var years = /^[0-9]+년$/.test(OV.preset) ? parseInt(OV.preset, 10) : 0;
+  if (!years) return all;
+  return all.filter(function(i){ return i >= Math.max(0, n - years * 4); });
+}
+function ovPreset(preset, btn) {
+  if (!ovInit()) return;
+  OV.preset = preset;
+  document.querySelectorAll('.ov-controls .period-bar button').forEach(function(b){ b.classList.toggle('active', b.dataset.preset === preset); });
+  document.querySelectorAll('.ov-controls .kis-custom').forEach(function(b){ b.classList.remove('show'); });
+  ovRender(true);
+}
+function ovCustomToggle(btn) {
+  var box = btn.closest('.ov-controls').querySelector('.kis-custom');
+  box.classList.toggle('show');
+  btn.closest('.period-bar').querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+function ovCustomApply(btn) {
+  if (!ovInit()) return;
+  var box = btn.closest('.kis-custom');
+  var s = box.querySelector('.kis-start').value.trim(), e = box.querySelector('.kis-end').value.trim();
+  if (!s || !e) return;
+  OV.preset = '설정'; OV.start = s; OV.end = e;
+  ovRender(true);
+}
+function ovRender(force) {
+  if (!ovInit()) return;
+  var idx = ovIndices();
+  OV.d.metrics.forEach(function(m){
+    var el = document.getElementById('ov-chart-' + m.k);
+    if (!el || el.offsetParent === null) return;
+    if (!force && el.dataset.drawn === '1') return;
+    var x = idx.map(function(i){ return OV.d.quarters[i]; });
+    var traces = [];
+    OV.d.sectors.forEach(function(sec){
+      var y = OV.d.series[sec] && OV.d.series[sec][m.k];
+      if (!y) return;
+      var hidden = OV_HIDDEN_DEFAULT[sec] ? 'legendonly' : true;
+      if (el.data) { var old = el.data.filter(function(t){ return t.name === sec; })[0]; if (old) hidden = old.visible; }   // 범례 클릭 상태 유지
+      traces.push({x: x, y: idx.map(function(i){ return y[i]; }), type: 'scatter', mode: 'lines', name: sec, connectgaps: false, visible: hidden,
+                   line: {color: OV_COLORS[sec] || '#555', width: 2.4},
+                   hovertemplate: '%{x}<br>' + sec + ' %{y:.2f}%<extra></extra>'});
+    });
+    el.dataset.drawn = '1';
+    plotReact(el.id, traces, {height: 380, margin: {t: 50, b: 60, l: 55, r: 10}, title: '<b>' + m.n + '</b> (%)',
+                              xaxis: kisXAxis(x.length), yaxis: {ticksuffix: '%', rangemode: 'tozero'}, legend: {}}, {displaylogo: false, responsive: true});
+  });
+}
