@@ -200,6 +200,7 @@ class CardData:
         add_sum("aq_over2", over2)
         add_ratio("aq_overr2", over2, g("SC117", "A"))
         add_ratio("aq_cov", allow, sub)                                                              # 대손충당금/고정이하여신
+        add_ratio("aq_covover", allow, over)                                                         # 대손충당금/연체채권(1개월 이상)
         add_ratio("aq_covneed", allow, need)                                                         # 대손충당금 적립비율(요적립액 대비)
 
         # ================= 자본적정성 (SC007)
