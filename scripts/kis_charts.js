@@ -136,6 +136,7 @@ function kisRenderVisible() {
     if (el.dataset.stack) { kisRenderStack(el, ser, idx); return; }
     if (el.dataset.multi) { kisRenderMulti(el, ser, idx); return; }
     if (el.dataset.scatter) { kisRenderScatter(el, idx); return; }
+    if (el.dataset.allco) { kisRenderAllco(el, ser, idx); return; }
     if (el.dataset.cmp3) { kisRenderCmp3(el, ser, idx); return; }
     if (el.dataset.cmp3m) { kisRenderCmp3m(el, ser, idx); return; }
     if (el.dataset.buf) { kisRenderBuf(el, ser, idx); return; }
@@ -394,7 +395,7 @@ function kisRenderCmp3(el, ser, idx) {
             line: {color: src.color, width: src.width, dash: src.dash}, hovertemplate: '%{x}<br>' + src.name + ' %{y:.2f}' + suffix + '<extra></extra>'};
   });
   plotReact(el.id, traces, {
-    height: 340, margin: {t: 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+    height: 340, margin: {t: cfg.pair ? 95 : 50, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
     yaxis: {ticksuffix: suffix === '%' ? '%' : ''}, legend: {}
   }, {displaylogo: false, responsive: true});
 }
@@ -1116,4 +1117,35 @@ function ppButtons() {
   return [{name: 'copyImage', title: '이미지 복사 (가로 8cm × 세로 6cm, 글씨 7pt)',
            icon: {width: 24, height: 24, ascent: 24, descent: 0, path: 'M2 2H16V4H4V18H2Z M6 6H22V22H6Z'},
            click: function(gd){ ppCopyImage(gd); }}];
+}
+
+// 회사별 추이 비교: 선택한 지표를 회사마다 한 줄씩 (카드사 전체는 굵은 남색선, 선택한 회사는 굵게)
+var ALLCO_COLORS = ['#2980B9', '#E8312F', '#F5B301', '#70AD47', '#8E44AD', '#17A2B8', '#ED7D31', '#7F7F7F'];
+function kisRenderAllco(el, ser, idx) {
+  var cfg = JSON.parse(el.dataset.allco), k = cfg.k, S = KIS.d.series;
+  var suffix = el.dataset.unit === '%' ? '%' : el.dataset.unit;
+  var names = KIS.d.companies.filter(function(c){ return c !== KIS.d.allLabel; }).slice().sort();
+  var sources = [];
+  if (S[KIS.d.allLabel] && S[KIS.d.allLabel][k]) sources.push({name: KIS.d.allLabel, s: S[KIS.d.allLabel], color: '#1F3864', width: 3.6, dash: 'solid'});
+  names.forEach(function(c, i){
+    if (!S[c] || !S[c][k]) return;
+    sources.push({name: kisShort(c), s: S[c], color: ALLCO_COLORS[i % ALLCO_COLORS.length], width: c === KIS.company ? 3 : 1.6, dash: 'solid'});
+  });
+  var firstOk = idx.length;
+  sources.forEach(function(src){
+    var j = 0;
+    while (j < idx.length && (src.s[k][idx[j]] === null || src.s[k][idx[j]] === undefined)) j++;
+    if (j < firstOk) firstOk = j;
+  });
+  if (firstOk >= idx.length) { emptyChartMsg(el.id, '이 기간엔 데이터가 없어요.'); return; }
+  var idxC = idx.slice(firstOk);
+  var x = idxC.map(function(i){ return KIS.d.quarters[i]; });
+  var traces = sources.map(function(src){
+    return {x: x, y: idxC.map(function(i){ return src.s[k][i]; }), type: 'scatter', mode: 'lines', name: src.name, connectgaps: true,
+            line: {color: src.color, width: src.width, dash: src.dash}, hovertemplate: '%{x}<br>' + src.name + ' %{y:.2f}' + suffix + '<extra></extra>'};
+  });
+  plotReact(el.id, traces, {
+    height: 340, margin: {t: 95, b: 60, l: 55, r: 10}, title: kisTitle(el), xaxis: kisXAxis(x.length),
+    yaxis: {ticksuffix: suffix === '%' ? '%' : ''}, legend: {orientation: 'h', x: 0, y: 1.02, yanchor: 'bottom', font: {size: 10}}
+  }, {displaylogo: false, responsive: true});
 }

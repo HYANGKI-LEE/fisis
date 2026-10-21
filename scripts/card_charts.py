@@ -248,6 +248,7 @@ SECTIONS = {
     "bs": _row_charts(BS_ROWS),
     "is": _row_charts([(n, "eok", k, "is_" + k, i, b) for n, k, i, b in IS_ROWS]),
 }
+PAIRED = {"aq", "cp"}   # 차트마다 카드사별 비교 차트를 옆에 붙이는 탭
 SERIES_KEY = {"pf_c_rev": "is_rev", "pf_c_cost": "is_cost", "pf_c_ppop": "is_ppop", "pf_c_dae": "is_dae", "pf_c_op": "is_op", "pf_c_ni": "is_ni",
               "pr_ni": "is_ni", "pr_rev": "is_rev", "pr_ppop": "is_ppop", "us_c_total": "us_total", "us_c_check": "us_check"}
 
@@ -317,7 +318,7 @@ def _cell(prefix, key, name, unit, kind, extra):
     if kind == "empty":
         return '<div class="cell"></div>'
     attrs = ""
-    if kind in ("dual", "cmp3", "cmp3m", "stackj", "scatter"):
+    if kind in ("dual", "cmp3", "cmp3m", "stackj", "scatter", "allco"):
         attrs = f" data-{kind}='{json.dumps(extra, ensure_ascii=False)}'"
     elif kind in ("multi", "stack"):
         spec = [{"k": k, "n": n, "c": c} for k, n, c in extra]
@@ -332,8 +333,8 @@ def _cell(prefix, key, name, unit, kind, extra):
     )
 
 
-def _grid(prefix, items):
-    return f'<div class="grid" style="grid-template-columns:repeat({COLUMNS},1fr);">' + "".join(_cell(prefix, *it) for it in items) + "</div>"
+def _grid(prefix, items, cols=COLUMNS):
+    return f'<div class="grid" style="grid-template-columns:repeat({cols},1fr);">' + "".join(_cell(prefix, *it) for it in items) + "</div>"
 
 
 def _cbar(prefix, key, title, metrics, quarters):
@@ -403,6 +404,10 @@ def render_bodies(prefix: str, quarters: list[str], list_html: str = "") -> list
     ctl = render_controls()
 
     def sec(name):
+        if name in PAIRED:   # 왼쪽: 선택 회사 비교 차트, 오른쪽: 같은 지표의 카드사별 비교 차트
+            items = [it for key, title, unit, kind, extra in SECTIONS[name]
+                     for it in ((key, title, unit, kind, {**extra, "pair": 1}), (key + "_all", title + " - 카드사별", unit, "allco", {"k": extra["k"]}))]
+            return f'<h4>{SECTION_TITLES[name]}</h4>' + _grid(prefix, items, 2)
         return f'<h4>{SECTION_TITLES[name]}</h4>' + _grid(prefix, SECTIONS[name])
 
     bodies = {
