@@ -404,10 +404,11 @@ def render_bodies(prefix: str, quarters: list[str], list_html: str = "") -> list
     ctl = render_controls()
 
     def sec(name):
-        if name in PAIRED:   # 왼쪽: 선택 회사 비교 차트, 오른쪽: 같은 지표의 카드사별 비교 차트
-            items = [it for key, title, unit, kind, extra in SECTIONS[name]
-                     for it in ((key, title, unit, kind, {**extra, "pair": 1}), (key + "_all", title + " - 카드사별", unit, "allco", {"k": extra["k"]}))]
-            return f'<h4>{SECTION_TITLES[name]}</h4>' + _grid(prefix, items, 2)
+        if name in PAIRED:   # 3열: 위는 선택 회사 비교 차트, 아래는 같은 지표 순서의 카드사별 비교 차트
+            left = [(key, title, unit, kind, {**extra, "pair": 1}) for key, title, unit, kind, extra in SECTIONS[name]]
+            right = [(key + "_all", title + " - 카드사별", unit, "allco", {"k": extra["k"], "pair": 1}) for key, title, unit, kind, extra in SECTIONS[name]]
+            return (f'<h4>{SECTION_TITLES[name]}</h4>' + _grid(prefix, left)
+                    + '<h4>카드사별 비교 (카드사 전체 + 개별 카드사)</h4>' + _grid(prefix, right))
         return f'<h4>{SECTION_TITLES[name]}</h4>' + _grid(prefix, SECTIONS[name])
 
     bodies = {

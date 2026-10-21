@@ -201,7 +201,9 @@ class CardData:
         add_ratio("aq_subr", sub, tot)
         add_ratio("aq_overr", over, g("SC117", "A"))
         # 연체채권(1개월 이상, 대환대출 포함 = 금감원 기준): FISIS는 비율(소수 둘째 자리까지)만 공시해서 비율 x 총채권으로 역산 (금액 오차 약 +-20억원)
-        over2 = g("SC117", "C", None, 1.0) / 100 * g("SC117", "A")
+        ratio2 = g("SC117", "C", None, 1.0)
+        ratio2 = ratio2.where((ratio2 >= 0) & (ratio2 <= 100))      # FISIS 원자료 오류(KB국민카드 2011.Q1 = 14,315,200) 제외
+        over2 = ratio2 / 100 * g("SC117", "A")
         add_sum("aq_over2", over2)
         add_ratio("aq_overr2", over2, g("SC117", "A"))
         add_ratio("aq_cov", allow, sub)                                                              # 대손충당금/고정이하여신
